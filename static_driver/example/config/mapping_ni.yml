@@ -1,0 +1,302 @@
+# ---------------------------------------------------------------------------
+# RECORD -- a copy of repository/config/mapping_ni.yml as it stood when this
+# driver was built. It documents what was used; it is NOT what a re-run reads.
+# Editing this file changes nothing. Edit the original above instead.
+# ---------------------------------------------------------------------------
+# ==============================================================================
+# Semantic mapping: ALKIS / LoD2 / Basis-DLM  ->  PALM surface types
+# ==============================================================================
+# The second and last region-specific file. Everything here is data, not code.
+#
+# CORE IDEA -- land USE x land COVER
+# ---------------------------------
+# ALKIS `nutzung` is a land *use* model: a polygon "41001 Wohnbauflaeche"
+# contains roofs, driveways, lawns and trees alike. Mapping it 1:1 onto a PALM
+# surface type would therefore be wrong at 1 m resolution. Instead every ALKIS
+# class declares what it becomes depending on the land *cover* observed in the
+# orthophoto and the nDSM:
+#
+#   water:      -> unconditionally this water type
+#   high_ndvi:  -> NDVI >= ndvi_threshold          (vegetated)
+#   low_ndvi:   -> NDVI <  ndvi_threshold          (sealed or bare)
+#   high_veg:   -> vegetated AND nDSM >= height_high_vegetation_lower_threshold
+#
+# Buildings always win (they are burnt in from the cadastre footprints and
+# palm_csd enforces building > water > pavement > vegetation on top).
+#
+# TYPE SYNTAX:  "<group>:<palm_type_name>",  group in {vegetation, pavement, water}
+# Names and their valid ranges are taken from palm_csd docs/types.md:
+#   vegetation_type 1..18, pavement_type 0..15, water_type 0..5
+#
+# LOOKUP:  longest matching prefix of the ALKIS `tn` string wins, e.g.
+#   "43002 VEG 1100"  ->  entry "43002 VEG 1100"   (Laubholz)
+#   "43002 VEG 9999"  ->  entry "43002"            (Wald, generic)
+#   "49999"           ->  `fallback` below
+# Unmapped keys encountered in the data are reported by `palmgeo report`.
+# ==============================================================================
+
+region: NI
+
+# ------------------------------------------------------------------ defaults --
+fallback:
+  high_ndvi: vegetation:short_grass
+  low_ndvi:  vegetation:bare_soil
+  high_veg:  vegetation:deciduous_broadleaf_trees
+
+# Used when phenology (two orthophoto epochs) is DISABLED. With phenology
+# enabled, `high_veg` is overridden per pixel by the leaf-off/leaf-on NDVI
+# pair -- except where a class sets `high_veg_fixed: true`.
+# ASSUMPTION: broadleaf deciduous is the most common tall vegetation in NI.
+default_high_vegetation: vegetation:deciduous_broadleaf_trees
+
+# What a tree detected by `vegetation.trees.mode: rentz` becomes in palm_csd:
+# an index into palm_csd/data/tree_defaults.csv (crown shape, leaf area and
+# trunk defaults) plus a species label for trees.gpkg. The detection only
+# tells conifer from broadleaf crowns; which species stands for each is the
+# region's call. Fir and beech, as in the method palmgeo's detection was
+# ported from (see palmgeo/steps/trees.py).
+single_trees:
+  conifer:   {tree_type: 1,  species: Abies}    # shape 3 (cone)
+  broadleaf: {tree_type: 33, species: Fagus}    # shape 1 (sphere)
+
+phenology:
+  # Applied only where nDSM >= height_high_vegetation_lower_threshold.
+  #   leaf-on high  AND leaf-off high  -> stays green in winter -> conifer
+  #   leaf-on high  AND leaf-off low   -> sheds leaves          -> broadleaf
+  #   leaf-on high  AND leaf-off mid   -> mixed stand
+  evergreen: vegetation:evergreen_needleleaf_trees
+  deciduous: vegetation:deciduous_broadleaf_trees
+  mixed:     vegetation:mixed_forest_woodland
+
+# --------------------------------------------------- ALKIS tatsaechliche Nutzung
+# key = ALKIS `tn` (object type, optionally + attribute + value)
+landuse:
+
+  # ---- 41xxx Siedlung -------------------------------------------------------
+  "41001":                       # Wohnbauflaeche
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:paving_stones
+  "41001 BEB 2000":              # geschlossene Bauweise -> more asphalt, less lawn
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "41002":                       # Industrie- und Gewerbeflaeche
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "41002 FKT 1740":              # Lagerflaeche
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:gravel
+  "41002 FKT 2610":              # Klaeranlage
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "41003":                       # Halde
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+  "41004":                       # Bergbaubetrieb
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+  "41005":                       # Tagebau, Grube, Steinbruch
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+  "41006":                       # Flaeche gemischter Nutzung
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:paving_stones
+  "41006 FKT 2700":              # Geb.-/Freiflaeche Land- und Forstwirtschaft
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "41007":                       # Flaeche besonderer funktionaler Praegung
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "41008":                       # Sport-, Freizeit- und Erholungsflaeche
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:fine_gravel
+  "41008 FKT 4100":              # Sportanlage
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:tartan
+  "41008 FKT 4400":              # Gruenanlage
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:fine_gravel
+  "41008 FKT 4410":              # Siedlungsgruenflaeche
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:fine_gravel
+  "41008 FKT 4420":              # Park
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:fine_gravel
+  "41008 FKT 4440":              # Kleingarten
+    high_ndvi: vegetation:irrigated_crops
+    low_ndvi:  pavement:fine_gravel
+  "41008 FKT 4470":              # Spielplatz, Bolzplatz
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:fine_gravel
+  "41009":                       # Friedhof
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:fine_gravel
+
+  # ---- 42xxx Verkehr --------------------------------------------------------
+  "42001":                       # Strassenverkehr
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "42001 FKT 2312":              # Begleitflaeche Strassenverkehr (Verkehrsgruen)
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:gravel
+  "42001 FKT 5130":              # Fussgaengerzone
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:paving_stones
+  "42006":                       # Weg
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:fine_gravel
+  "42006 FKT 5220":              # Fussweg
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:paving_stones
+  "42006 FKT 5240":              # Radweg
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt
+  "42006 FKT 5250":              # Rad- und Fussweg
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt
+  "42006 FKT 5270":              # Begleitflaeche Weg
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:gravel
+  "42009":                       # Platz
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:paving_stones
+  "42009 FKT 5310":              # Parkplatz
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "42010":                       # Bahnverkehr
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:gravel     # ballast bed
+  "42010 FKT 2322":              # Begleitflaeche Bahnverkehr
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:gravel
+  "42015":                       # Flugverkehr
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "42016":                       # Schiffsverkehr (land side)
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+
+  # ---- 43xxx Vegetation -----------------------------------------------------
+  "43001":                       # Landwirtschaft (generic)
+    high_ndvi: vegetation:crops_mixed_farming
+    low_ndvi:  vegetation:bare_soil
+  "43001 VEG 1010":              # Ackerland
+    high_ndvi: vegetation:crops_mixed_farming
+    low_ndvi:  vegetation:bare_soil
+  "43001 VEG 1020":              # Gruenland
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+  "43001 VEG 1030":              # Gartenbauland
+    high_ndvi: vegetation:irrigated_crops
+    low_ndvi:  vegetation:bare_soil
+  "43001 VEG 1200":              # Brachland
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+  "43002":                       # Wald (generic)
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:mixed_forest_woodland
+    low_ndvi:  vegetation:bare_soil
+  "43002 VEG 1100":              # Laubholz
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:deciduous_broadleaf_trees
+    high_veg_fixed: true
+    low_ndvi:  vegetation:bare_soil
+  "43002 VEG 1200":              # Nadelholz
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:evergreen_needleleaf_trees
+    high_veg_fixed: true
+    low_ndvi:  vegetation:bare_soil
+  "43002 VEG 1300":              # Laub- und Nadelholz
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:mixed_forest_woodland
+    high_veg_fixed: true
+    low_ndvi:  vegetation:bare_soil
+  "43003":                       # Gehoelz
+    high_ndvi: vegetation:deciduous_shrubs
+    high_veg:  vegetation:interrupted_forest
+    low_ndvi:  vegetation:bare_soil
+  "43004":                       # Heide
+    high_ndvi: vegetation:evergreen_shrubs
+    low_ndvi:  vegetation:bare_soil
+  "43005":                       # Moor
+    high_ndvi: vegetation:bogs_marshes
+    low_ndvi:  vegetation:bogs_marshes
+  "43006":                       # Sumpf
+    high_ndvi: vegetation:bogs_marshes
+    low_ndvi:  vegetation:bogs_marshes
+  "43007":                       # Unland / vegetationslose Flaeche
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+  "43007 FKT 1100":              # Gewaesserbegleitflaeche
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+  "43007 FKT 1300":              # naturnahe Flaeche
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+
+  # ---- 44xxx Gewaesser ------------------------------------------------------
+  "44001": {water: water:river}          # Fliessgewaesser
+  "44001 FKT 8200": {water: water:river} # Fluss
+  "44001 FKT 8300": {water: water:river} # Kanal
+  "44001 FKT 8400": {water: water:river} # Graben
+  "44002": {water: water:river}          # Wasserlauf
+  "44005": {water: water:river}          # Hafenbecken
+  "44006": {water: water:lake}           # Stehendes Gewaesser
+  "44006 FKT 8610": {water: water:lake}  # See
+  "44006 FKT 8620": {water: water:pond}  # Teich
+  "44006 FKT 8631": {water: water:lake}  # Speicherbecken
+  "44007": {water: water:ocean}          # Meer
+
+# ------------------------------------------------------------- building type --
+# PALM only distinguishes residential/office x three construction periods
+# (see palm_csd docs/types.md: building_type 1..7).
+#
+# ASSUMPTION -- neither ALKIS nor LoD2 carries a construction year, so the age
+# class cannot be derived from open data. `default_age` is applied to every
+# building. Override it per run, or supply your own building-age raster via
+# `extra_inputs` in the run config.
+building_type:
+  default_age: "1951_2000"       # -> residential_1951_2000 / office_1951_2000
+  default: residential
+  # matched on the leading digits of the ALKIS `gfk` code (longest prefix wins)
+  by_gfk:
+    "1":    residential          # 1000 Wohngebaeude, 1120/1130 Mischnutzung
+    "1210": residential          # land-/forstwirtschaftliches Wohngebaeude
+    "2":    office               # 2000 Wirtschaft/Gewerbe, 2100 Industrie
+    "2463": office               # Garage
+    "3":    office               # 3000 oeffentliche Zwecke, Schulen, Kirchen
+
+# ------------------------------------------------------------------- bridges --
+bridges:
+  # ALKIS bauwerke_f, field `bwf`
+  values: ["1800"]               # Bruecke
+  building_type: bridges         # PALM building_type 7
+
+# --------------------------------------------------------------- street type --
+# PALM's street_type enum IS the OpenStreetMap `highway` taxonomy. The
+# Basis-DLM `WDM` (Widmung) codes below are the closest available equivalent.
+#
+# Verified against the shipped ver01_l.dbf; the counts are from a 54 346-record
+# sample of the 784 664 statewide segments. Any value not listed here is
+# reported by `palmgeo report --what street_type` instead of failing silently.
+street_type:
+  field: WDM
+  default: unclassified
+  by_value:
+    "1301": motorway             # Bundesautobahn          (~2 %)
+    "1303": primary              # Bundesstrasse           (~8 %)
+    "1305": secondary            # Landesstrasse           (~8 %)
+    "1306": tertiary             # Kreisstrasse            (~12 %)
+    "1307": residential          # Gemeindestrasse         (~62 %)
+    "9997": unclassified         # sonstiges
+    "9999": unclassified         # Attribut trifft nicht zu (~8 %)
+
+# --------------------------------------------------------------- soil type ----
+# ASSUMPTION -- no open, area-wide soil texture layer is wired in by default.
+# PALM's soil_type 1..6 (coarse..organic); palm_csd's own default is 3.
+# To use the LBEG BUEK50 instead, add a `soil` source of kind `wfs` to
+# sources_ni.yml and set `soil.source: lbeg` in the run config.
+soil:
+  constant: medium_fine          # = 3
+  by_landuse_prefix:             # optional refinement, applied where it matches
+    "43005": organic             # Moor
+    "43006": organic             # Sumpf

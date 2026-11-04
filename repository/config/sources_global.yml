@@ -1,0 +1,278 @@
+# ==============================================================================
+# Global fallback sources -- a library, not a runnable region file
+# ==============================================================================
+# WHY THIS FILE IS DIFFERENT FROM sources_ni.yml / sources_us_ny.yml
+# --------------------------------------------------------------------
+# Every other sources_*.yml declares ONE `crs:` that every raster product in
+# it must natively share (PORTING.md §1) -- valid because the region is
+# fixed (Niedersachsen -> EPSG:25832, NYC -> the State Plane family). There is
+# no such thing as one fixed CRS for "the whole world": Sentinel-2 tiles are
+# each in their OWN UTM zone, FABDEM/Copernicus DEM/OSM data are WGS84
+# (geographic, not projected at all). So this file cannot be pointed at
+# directly via `project.sources` -- there is no single `crs:` value that
+# would ever be true for it.
+#
+# What it IS: a curated set of sources that exist EVERYWHERE (no municipal
+# open-data portal required), each entry verified against the real service at
+# least once, with the staging recipe needed to bring it into whatever target
+# CRS a new port actually needs -- the same staging pattern
+# repository/ports/us_ny/stage_sources.py implements for NYC, generalised.
+# When porting to a new region (sources_eg.yml is a worked example, built
+# almost entirely from this file):
+#   1. Look for real local open data first (a national/municipal cadastre,
+#      mapping agency DEM, etc.) -- it will almost always be more current,
+#      finer and better attributed than anything here. Everything below is
+#      the FLOOR, not the target.
+#   2. For whatever role local data does not cover, copy the matching entry
+#      below into the new region's own sources_<region>.yml, replace the
+#      `native_epsg`/example URLs with ones verified against the real AOI
+#      (coordinates, tile ids, and CRS all shift per location -- nothing here
+#      is copy-paste-safe without re-checking against the new AOI), and write
+#      a staging script the same shape as ports/us_ny/stage_sources.py.
+#   3. Update this file's own verification notes if something changed.
+#
+# The first entry proven end to end was `water`, built and run for real for
+# the Manhattan run (repository/ports/us_ny/stage_sources.py::
+# build_water_layer(), mapping_us_ny.yml's "WTR" rule). The Egypt port has
+# since downloaded and used FABDEM, Copernicus DEM, Sentinel-2 and the OSM
+# cadastre for real (ports/eg/stage_sources.py). Read that one first -- it is the template for how a "copy from here"
+# fix is supposed to look, including what "verified" actually means (a real
+# query against the real service, not a documentation citation).
+# ==============================================================================
+
+region: GLOBAL   # not a palmgeo `region:` value in the usual sense -- see header
+
+# ---------------------------------------------------------------------------
+# Which source fills each role, unless the run configuration overrides it.
+#
+# These names used to be hard-coded in palmgeo/config.py -- Lower Saxony's
+# product names, in code that claims to know no product names. They belong
+# here, where a region declares its own defaults. A role with exactly one
+# source needs no entry; a role with several does, because otherwise the
+# choice would be made by dictionary order.
+# ---------------------------------------------------------------------------
+defaults:
+  dtm: fabdem
+  dsm: copernicus_dem_glo30
+  ortho: sentinel2_l2a
+  cadastre: osm_landuse
+  topo: osm_highways
+  water: osm_natural_water
+
+sources:
+
+  # ------------------------------------------------------------ dtm (bare earth)
+  fabdem:
+    role: dtm
+    licence: CC-BY-NC-SA-4.0
+    licence_holder: University of Bristol
+    native_format: cog
+    native_crs: EPSG:4326            # geographic, 1 arcsec (~30 m at equator)
+    access: >
+      University of Bristol data repository (data.bris.ac.uk) or Hugging Face
+      (huggingface.co/datasets/links-ads/fabdem-v12); tiled 1x1 degree, named
+      by SW corner (e.g. N24E032_FABDEM_V1-2.tif, the tile holding Aswan),
+      in 10-degree folders (N20E030-N30E040_FABDEM_V1-2/). Downloaded and
+      used for real by the Egypt port, which derives both names from its
+      --bbox (ports/eg/stage_sources.py::stage_dem).
+    licence_notes: >
+      CC BY-NC-SA 4.0. "NonCommercial" = not primarily directed at commercial
+      advantage or monetary compensation -- university/publicly funded
+      research (a computing allocation, a paper, a thesis) is squarely the
+      paradigm case this license is written for, not a grey area. Two real,
+      minor obligations rather than a usage restriction: (1) ShareAlike --
+      redistributing the driver or derived rasters must carry the same
+      licence and attribute FABDEM; (2) ordinary Attribution. The only
+      actual grey area is redistributing the DATA ITSELF through a
+      commercial/paywalled channel, not publishing research results derived
+      from it. If even that residual ambiguity is unwanted, drop straight to
+      copernicus_dem_glo30 below as a DTM approximation instead (no NC
+      clause at all, at the cost of it not being bare-earth).
+    notes: >
+      Forest And Buildings removed Copernicus DEM -- derived FROM
+      copernicus_dem_glo30 below by a university group specifically to strip
+      the building/canopy height bias that makes GLO-30 unusable as a DTM on
+      its own. Validated (published, peer-reviewed) to roughly halve mean
+      vertical error vs. raw GLO-30 in both forested and built-up areas.
+      30 m is coarse for anything finer than a >=16-32 m PALM domain; there
+      is no equally-available finer GLOBAL bare-earth DTM as of this
+      writing -- a real local DTM (national mapping agency, SRTM-derived
+      national products, etc.) should always be sought first.
+
+  # --------------------------------------------------------------- dsm (surface)
+  copernicus_dem_glo30:
+    role: dsm
+    licence: copernicus
+    licence_holder: ESA / Copernicus
+    native_format: cog
+    native_crs: EPSG:4326
+    access: >
+      s3://copernicus-dem-30m (AWS Registry of Open Data, no auth), tiled
+      1x1 degree, path pattern
+      Copernicus_DSM_COG_10_N{lat}_00_E{lon}_00_DEM/…_DEM.tif. VERIFIED
+      2026-09-04 via the AWS Open Data registry entry and readme.html at
+      copernicus-dem-30m.s3.amazonaws.com; pulled for real by the Egypt
+      port (ports/eg/stage_sources.py::stage_dsm).
+    licence_notes: >
+      Copernicus DEM licence (free, attribution required, no NC restriction
+      unlike FABDEM) -- re-check the exact current terms at the registry
+      entry before publishing a driver built from it.
+    notes: >
+      A true DSM: "represents the surface of the Earth including buildings,
+      infrastructure and vegetation" (2021 release). This is the natural
+      global `dsm` partner for fabdem's `dtm` above -- both derive from the
+      same underlying elevation model, one before and one after the
+      building/forest removal step, so nDSM = copernicus_dem_glo30 - fabdem
+      is at least internally consistent even though it is not a measured
+      nDSM the way a real DTM/DSM LiDAR pair is. 30 m native.
+
+  # ------------------------------------------------------------ ortho (with NIR)
+  sentinel2_l2a:
+    role: ortho
+    # Sentinel-2 L2A is surface reflectance scaled by 10 000, not 8-bit
+    # counts. Without this the kept bands saturate at 255 and the greenness
+    # criterion can never fire -- see steps/tiles.py::_to_byte_cube.
+    value_max: 10000
+    licence: copernicus
+    licence_holder: ESA / Copernicus
+    native_format: cog
+    native_crs: per-scene UTM         # NOT one fixed EPSG -- varies by MGRS tile
+    access: >
+      Earth Search STAC API, earth-search.aws.element84.com/v1, collection
+      'sentinel-2-l2a'. NIR (band 8, 10 m) is asset key "nir". COGs live in
+      the AWS us-west-2 bucket e84-earth-search-sentinel-data. VERIFIED
+      2026-09-04 against the Earth Search / STAC Index documentation, and
+      queried for real by the Egypt port (ports/eg/stage_sources.py::
+      stage_ortho).
+    licence_notes: >
+      Copernicus Sentinel data, free and open (ESA/Copernicus terms,
+      attribution required).
+    notes: >
+      10 m is the hard floor here -- roughly 3x coarser than palmgeo's own
+      `detail_factor: 8` design target even at a 32 m parent domain, and
+      useless for anything finer than that without accepting a much coarser
+      vegetation/pavement classification than the NI/NYC reference runs.
+      Revisit clouds: L2A ships a scene classification layer (SCL) worth
+      filtering on before trusting any pixel's NDVI. No colour-infrared/4-band
+      "true" imagery exists at global-fallback tier the way NYSDOP or DOP20
+      offer locally -- Sentinel-2 IS the fallback, there is nothing finer
+      that is also global and free.
+
+  # ------------------------------------------------------- cadastre (landuse)
+  osm_landuse:
+    role: cadastre                    # `landuse` sublayer
+    licence: ODbL-1.0
+    licence_holder: OpenStreetMap contributors
+    native_format: overpass-json / geojson
+    native_crs: EPSG:4326
+    access: >
+      Overpass API (overpass-api.de/api/interpreter), query on
+      `landuse=*`/`natural=*`/`leisure=*` polygons over the AOI bbox.
+      VERIFIED 2026-09-04 -- exactly the query shape used for the `water`
+      entry below, just with different tag filters; run for a full
+      landuse extraction by the Egypt port (ports/eg/stage_sources.py::
+      stage_osm).
+    licence_notes: ODbL (OpenStreetMap Foundation) -- attribution + share-alike on
+      the derived DATA (not the code), keep the "(C) OpenStreetMap
+      contributors" notice in the driver.
+    notes: >
+      Coverage is only as good as local mapper activity -- excellent in most
+      of Europe and North America, genuinely variable elsewhere. Before
+      trusting this as the ONLY cadastre source for a new region (e.g. a
+      first look at Aswan), query `landuse`/`building` feature counts over
+      the real AOI and eyeball them against satellite imagery -- palmgeo's
+      own `report` command will faithfully process whatever tag vocabulary
+      is present, but cannot tell you a neighbourhood was never mapped at all
+      the same way it flags an unmapped CODE (see mapping_global.yml header).
+      See PORTING.md §1's "LBM-DE" discussion in sources_ni.yml for the
+      same caution applied to a coarse regional product.
+
+  osm_buildings:
+    role: cadastre                    # `buildings` sublayer
+    licence: ODbL-1.0
+    licence_holder: OpenStreetMap contributors
+    native_format: overpass-json / geojson
+    native_crs: EPSG:4326
+    access: Overpass API, `building=*` ways/relations. Same caveats as osm_landuse.
+    licence_notes: ODbL
+    notes: >
+      Footprint only, essentially never carries a height attribute worth
+      trusting globally (unlike NYC's height_roof) -- palmgeo's DSM-measured
+      height path (README §9) is therefore not optional here the way it is
+      merely preferred for NYC; there is no credible buildings3d fallback at
+      global-fallback tier and none should be invented.
+
+  # ----------------------------------------------------------- topo (streets)
+  osm_highways:
+    role: topo
+    licence: ODbL-1.0
+    licence_holder: OpenStreetMap contributors
+    native_format: overpass-json / geojson
+    native_crs: EPSG:4326
+    access: Overpass API, `highway=*` ways.
+    licence_notes: ODbL
+    notes: >
+      Already the recommended default even for NI (see sources_ni.yml's bdlm
+      notes and PORTING.md): PALM's `street_type` enum IS the OSM
+      `highway` taxonomy, so this needs no translation table at all, unlike
+      every other role in this file -- the one place "global fallback" is
+      actually LESS work than a bespoke local source, not more.
+
+  # ------------------------------------------------------------------- water
+  # THE ONE FULLY PROVEN RECIPE IN THIS FILE. Two sources, because OSM splits
+  # "water" into two different, non-overlapping tagging conventions and
+  # missing either one leaves a real gap:
+  osm_natural_water:
+    role: water                       # fused INTO the `landuse` cadastre
+    licence: ODbL-1.0
+    licence_holder: OpenStreetMap contributors
+                                       # sublayer, not a palmgeo role of its
+                                       # own -- see mapping notes below
+    native_format: overpass-json
+    native_crs: EPSG:4326
+    access: >
+      Overpass API, `natural=water` ways/relations. RUN FOR REAL 2026-09-04
+      over Manhattan: 354 elements (lakes, ponds, reservoirs -- e.g. Central
+      Park's), see repository/ports/us_ny/stage_sources.py's
+      OSM_NATURAL_WATER_CACHE.
+    licence_notes: ODbL
+    notes: >
+      Covers inland standing water well. Does NOT cover large tidal
+      rivers/straits/coastline-adjacent water at all -- verified by a
+      targeted name search for "Hudson River"/"East River"/"Harlem River"
+      that found zero matching NYC-scale polygons. Large water bodies
+      connected to the sea are conventionally mapped as `natural=coastline`
+      LINES in OSM, not `natural=water` AREAS -- see the next entry for why
+      that matters and how to actually get an area out of it.
+
+  osm_coastline_water_polygons:
+    role: water
+    licence: ODbL-1.0
+    licence_holder: OpenStreetMap contributors
+    native_format: shapefile (one file, globally, pre-split for size)
+    native_crs: EPSG:4326
+    access: >
+      osmdata.openstreetmap.de/download/water-polygons-split-4326.zip
+      (904 MB, updated daily by FOSSGIS). DOWNLOADED FOR REAL 2026-09-04,
+      cached PERMANENTLY (not per-run) at
+      repository/.cache/global/water-polygons-split-4326/ -- this is a
+      SHARED, region-agnostic asset: do not re-download it per port, just
+      filter the existing local copy to the new AOI's bbox
+      (geopandas.read_file(path, bbox=...) is efficient enough not to need
+      the file split further). Filtered to Manhattan's bbox: 5 features,
+      real Hudson/East River/NY Harbor polygons, verified.
+    licence_notes: ODbL (derived from OSM coastline data)
+    notes: >
+      Pre-assembles `natural=coastline` ways into closed, valid, split
+      polygons -- solves exactly the problem osm_natural_water cannot: large
+      sea-connected water bodies. Ocean/sea/tidal-river coverage only, NOT
+      lakes/reservoirs (the coastline convention does not apply to them) --
+      this is why BOTH entries are needed together, never just one.
+      repository/ports/us_ny/stage_sources.py::build_water_layer() is the
+      reference implementation: fetch both, reproject to the run's target
+      CRS, clip to the AOI, tag with a synthetic land-use code the region's
+      own mapping_<region>.yml maps with a `water:` key (compose.py only
+      ever reads `water:` off a LANDUSE rule -- see steps/compose.py:124 --
+      there is no separate "water role" in the running pipeline, despite the
+      `role: water` label above; that label is this file's own
+      documentation shorthand, not a palmgeo Source.role value).

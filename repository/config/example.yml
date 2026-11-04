@@ -1,0 +1,176 @@
+# ==============================================================================
+# palmgeo example run -- Hannover city centre
+# ==============================================================================
+# This is both the worked example and the end-to-end test, deliberately one file
+# rather than two. A test nobody looks at rots quietly; an example nobody runs
+# rots the same way. Keeping them the same artefact means every change to the
+# pipeline is exercised on the thing newcomers read, and every claim the example
+# makes is one the test would catch going wrong.
+#
+# Three nested domains over 9 km2 of Hannover city centre, one per vegetation
+# mode:
+#
+#     root   2048 x 2048 m at 32 m, vegetation unresolved -- forest stays an LSM type
+#     N02    1024 x 1024 m at  8 m, vegetation mixed      -- canopy patches as LAD
+#     N03     256 x  256 m at  2 m, vegetation resolved   -- individual trees
+#
+# Roughly two minutes end to end on a warm cache, and it exercises every stage:
+# cadastre and roads, terrain and surface model, both orthophoto epochs, height
+# measurement per footprint, crown segmentation, classification, aggregation
+# onto three grids in two work tiers, and the palm_csd configuration.
+#
+#     python -m palmgeo.cli sources repository/config/example.yml
+#     python -m palmgeo.cli sources repository/config/example.yml --approve
+#     python -m palmgeo.cli all     repository/config/example.yml
+#     MPLBACKEND=Agg env -u PROJ_DATA -u PROJ_LIB \
+#         palm_csd --pdf static_driver/example/config/example_static_csd.yml
+#     python repository/tools/finalize.py      repository/config/example.yml
+#     python repository/tools/verify_driver.py repository/config/example.yml
+#
+# The built result is committed under static_driver/example/, so the driver can
+# be inspected without running anything -- and a fresh run can be compared
+# against it.
+# ==============================================================================
+project:
+  name: example_static
+  sources: repository/config/sources_ni.yml
+  mapping: repository/config/mapping_ni.yml
+  workdir: static_driver/example/work
+  outdir: static_driver/example
+  cachedir: repository/.cache
+
+profile: local
+runtime:
+  profiles:
+    local:
+      workers: 4
+      cache_budget_gb: 8
+      keep_downloads: false
+      gdal_cachemax_mb: 512
+  access: auto
+  retries: 3
+  timeout_s: 180
+
+grid:
+  epsg: 25832
+  buffer: 32.0
+  work_resolution: {detail_factor: 8, min: 1.0, max: 8.0, snap: [1.0, 2.0, 4.0, 8.0], fixed: null}
+
+sources:
+  dsm: dom1
+  buildings3d: lod2
+  cadastre: alkis
+  street_type: {enabled: true, source: bdlm}
+  ortho_epochs:
+    leaf_on:  {months: [5, 6, 7, 8, 9], min_year: 2015, w_season: 1.0, w_recency: 0.35, required: true}
+    leaf_off: {months: [3, 4],          min_year: 2015, w_season: 1.0, w_recency: 0.35, required: false}
+  prefer_uniform_epoch: true
+  max_epoch_spread_days: 30
+
+classification:
+  ndvi_threshold: 0.15
+  phenology: {enabled: true, evergreen_leaf_off_min: 0.30, deciduous_leaf_off_max: 0.15}
+  ndsm: {min: 0.0, max: 120.0, smooth_radius: 0}
+
+buildings:
+  # The surface model, not the 3D building model, is the primary source.
+  # LoD2 gives one height per building, which is both blocky and blind to
+  # courtyards the cadastre still maps as built. Over the Hannover test area
+  # half the buildings span more than 5 m within their own footprint and 2.5 %
+  # of footprint area is effectively open. LoD2 stays as the fallback where the
+  # surface model has no value, and building_type/building_id always come from
+  # the cadastre either way.
+  height_source: ndsm            # ndsm | lod2
+  height_fallback: lod2          # used where the primary source has no value
+  ndsm_percentile: 75            # per-footprint percentile -> robust height
+  footprint_erosion: 1.0         # m, inward buffer before sampling nDSM
+  min_height: 2.5                # m; shorter footprints are dropped
+  max_height: 300.0
+  per_pixel_height: true         # keep the measured roof relief per pixel
+  per_pixel_tolerance: null      # optional cap at p99 x this; truncates real towers
+  ignore_vegetation_on_roofs: true  # branches over a roof are not structure
+  carve_open_areas: true         # footprint pixels below min_height are open
+  bridges: {enabled: true, depth: 3.0}
+
+vegetation:
+  height_from: ndsm
+  lai: {enabled: false}
+
+soil: {source: constant}
+
+extra_inputs:
+  trees: {path: null, layer: null, columns: {}}
+  rasters: {}
+  surfaces: []
+
+output:
+  domain_rasters: true
+  inspection_raster: true
+  inspection_polygons: false
+  cog: {compress: DEFLATE, predictor: 2, blocksize: 512, overviews: true}
+
+csd:
+  interpolate_terrain: false     # each domain keeps its own terrain to the boundary (README §9.5)
+  attributes:
+    # These reach the driver's global attributes and travel with it. palmgeo
+    # deliberately does not invent them (README appendix A, item 12): a real
+    # run replaces them, and leaving the placeholder visible is better than
+    # shipping somebody else's affiliation.
+    author: palmgeo example run
+    institution: "(replace with your own institution)"
+    # The data attribution is a licence obligation, not a courtesy, and the
+    # driver carries it wherever it goes.
+    source: "© LGLN 2026 — dl-de/by-2-0 (DGM1, DOM1, DOP20, LoD2, ALKIS, Basis-DLM); processed with palmgeo"
+  settings:
+    season: summer
+    height_high_vegetation_lower_threshold: 2.0
+    height_rel_resolved_vegetation_lower_threshold: 0.5
+    lad_alpha: 5.0
+    lad_beta: 3.0
+    patch_height_default: 10.0
+    lai_low_vegetation_default: 3.0
+    lai_high_vegetation_default: 6.0
+    replace_invalid_input_values: true
+    rotation_angle: 0.0
+
+domains:
+  root:
+    pixel_size: 32.0
+    nx: 63
+    ny: 63
+    dz: 32.0
+    origin_x: 548488.0
+    origin_y: 5801488.0
+    # `unresolved` is right here: the first grid level is 16 m, well above the
+    # 2 m roughness length forest keeps as an LSM surface type.
+    vegetation_mode: unresolved
+    generate_buildings_3d: false
+  N02:
+    pixel_size: 8.0
+    nx: 127
+    ny: 127
+    dz: 8.0
+    origin_x: 549000.0
+    origin_y: 5802000.0
+    domain_parent: root
+    # `mixed`, not `unresolved`: at 8 m the first grid level is 4 m, and forest
+    # kept as an LSM type (z0 = 2 m) makes PALM stop with LSM0048, because it
+    # requires z0 < 0.5 * z_mo. `unresolved` is for domains of 16 m and coarser.
+    vegetation_mode: mixed
+    generate_buildings_3d: false
+  N03:
+    pixel_size: 2.0
+    nx: 127
+    ny: 127
+    dz: 2.0
+    origin_x: 549256.0
+    origin_y: 5802256.0
+    domain_parent: N02
+    # `resolved`, not `mixed`, so that individual trees actually reach the
+    # driver. The crown segmentation runs either way, but under `mixed` its
+    # result is never written -- which made the old smoke test silently skip
+    # the one thing that most distinguishes palmgeo. It costs about a minute
+    # here and needs a work tier of 2 m or finer.
+    vegetation_mode: resolved
+    generate_buildings_3d: true
+    use_palm_z_axis: true

@@ -1,0 +1,86 @@
+{
+  "domain": "N02",
+  "grid": {
+    "pixel_size": 8.0,
+    "nx": 127,
+    "ny": 127,
+    "width_px": 128,
+    "height_px": 128,
+    "origin_x": 549000.0,
+    "origin_y": 5802000.0,
+    "epsg": 25832
+  },
+  "work_tier": {
+    "resolution": 1.0,
+    "aggregation": "N02: exact (8x8 work px per cell)"
+  },
+  "exact_aggregation": true,
+  "acquired": {
+    "dtm": "2016-04-18",
+    "dsm": "2016-04-18",
+    "ortho:leaf_off": "2025-03-06",
+    "ortho:leaf_on": "2022-05-08"
+  },
+  "products": {
+    "bridges_2d": {
+      "valid_cells": 140,
+      "coverage": 0.0085,
+      "min": 0.702,
+      "max": 16.314
+    },
+    "bridges_id": {
+      "valid_cells": 140,
+      "coverage": 0.0085
+    },
+    "building_id": {
+      "valid_cells": 4246,
+      "coverage": 0.2592
+    },
+    "building_type": {
+      "valid_cells": 4246,
+      "coverage": 0.2592
+    },
+    "buildings_2d": {
+      "valid_cells": 4246,
+      "coverage": 0.2592,
+      "min": 2.581,
+      "max": 72.969
+    },
+    "pavement_type": {
+      "valid_cells": 7475,
+      "coverage": 0.4562
+    },
+    "soil_type": {
+      "valid_cells": 11336,
+      "coverage": 0.6919
+    },
+    "street_crossings": {
+      "valid_cells": 672,
+      "coverage": 0.041
+    },
+    "street_type": {
+      "valid_cells": 4186,
+      "coverage": 0.2555
+    },
+    "vegetation_height": {
+      "valid_cells": 3861,
+      "coverage": 0.2357,
+      "min": 0.008,
+      "max": 31.243
+    },
+    "vegetation_type": {
+      "valid_cells": 3861,
+      "coverage": 0.2357
+    },
+    "water_type": {
+      "valid_cells": 802,
+      "coverage": 0.049
+    },
+    "zt": {
+      "valid_cells": 16384,
+      "coverage": 1.0,
+      "min": 47.884,
+      "max": 58.318
+    }
+  }
+}

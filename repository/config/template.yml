@@ -1,0 +1,379 @@
+# ==============================================================================
+# palmgeo run configuration -- TEMPLATE. Copy this file for a new run.
+# ==============================================================================
+# Everything that describes THIS run lives here. Region specifics are in the
+# two files referenced under `project` and are not touched for a new run.
+#
+# To start a run:
+#
+#     mkdir -p static_driver/<run>/config
+#     cp repository/config/template.yml static_driver/<run>/config/<run>.yml
+#
+# then, before anything is downloaded:
+#
+#     python -m palmgeo.cli sources static_driver/<run>/config/<run>.yml
+#
+# which reports what data exists over your domains, under which licence you may
+# use it, and which part of the driver each dataset becomes. `vectors` and
+# `rasters` refuse to run until you have accepted that with `--approve`.
+#
+# then replace every `myrun` below with <run> and rewrite the `domains:` block
+# at the bottom. The domains shown there are those of the committed example
+# (repository/config/example.yml, Hannover city centre); they are a valid grid
+# (see README §9) but they are not yours.
+#
+# THE REGION. Everything below is preset for the Lower Saxony reference region,
+# so the template loads and plans as it stands. For any other region change
+# all of these together -- nothing in the code falls back to Lower Saxony:
+#
+#   project.sources, project.mapping    the region's two files
+#   grid.epsg                           the CRS those files declare (or leave
+#                                       it out: the region's `crs:` is used)
+#   sources.dsm / buildings3d / cadastre / street_type.source
+#                                       source names from that region's file
+#   sources.ortho_epochs.*.months       seasons -- these are northern-hemisphere
+#   buildings.height_fallback           `lod2` only where a 3D model exists
+#   csd.attributes.location, .source    the place, and the data attribution
+#
+# `palmgeo sources` then lists what that region offers over your domains.
+#
+# A run configuration lives in its own project directory, not in
+# `repository/config/`, because it names a site, an author and a study. Only
+# this template and the region files are versioned; `static_driver/` is
+# git-ignored, so publishing the repository does not publish your runs.
+#
+# The project directory it describes ends up like this:
+#
+#     static_driver/<run>/
+#     |-- <run>_static           the root driver, read by PALM under this name
+#     |-- <run>_static_N02 ...   the nests
+#     |-- config/                this file, the palm_csd config, the region YAMLs
+#     |-- products/<domain>/     the GeoTIFFs palm_csd reads
+#     |-- docs/                  the palm_csd sheets and the project README
+#     `-- work/                  intermediates, gigabytes, safe to delete
+# ==============================================================================
+
+project:
+  # `name` is the file prefix palm_csd writes and PALM reads. PALM expects
+  # <jobname>_static, so keep the _static suffix and let <run> be the PALM job.
+  name: myrun_static
+  # Every path below is relative to the PROJECT ROOT -- the directory holding
+  # `repository/` -- no matter where this file itself sits. palmgeo finds that
+  # root by walking up from the config; set `root:` here to override.
+  sources: repository/config/sources_ni.yml
+  mapping: repository/config/mapping_ni.yml
+  outdir:  static_driver/myrun        # the project directory (see the map above)
+  workdir: static_driver/myrun/work  # intermediates; safe to delete afterwards
+  # A region whose data needs staging refers to this run's staged files
+  # through the {workdir} placeholder in its sources_*.yml, so the region file
+  # stays usable for every run in that region. See PORTING.md.
+  #
+  # Optional shared download cache. The condensed source indices alone are
+  # ~150 MB, so several projects pointing here avoids re-fetching them.
+  # Absolute paths work everywhere here -- point workdir at another disk if
+  # space is short.
+  cachedir: repository/.cache
+
+# ------------------------------------------------------------------- runtime --
+profile: local                   # -> runtime.profiles.<profile>
+
+# Refuse the network entirely. The acquisition stages then check what they
+# would need BEFORE starting and abort with the full list, instead of failing
+# one file at a time. Set this only after `palmgeo fetch` has put every source
+# on disk -- or for a region whose sources are staged locally anyway, where it
+# holds from the start. See README §11.
+# offline: true
+
+runtime:
+  profiles:
+    local:
+      workers: 6
+      cache_budget_gb: 40        # hard cap on the download cache; LRU-evicted
+      keep_downloads: false      # delete each source tile once processed
+      gdal_cachemax_mb: 512
+    cluster:
+      workers: 24
+      cache_budget_gb: 400
+      keep_downloads: true       # compute nodes may lack internet: prefetch
+      gdal_cachemax_mb: 2048
+  # auto  -> stream via /vsicurl when an overview level already satisfies the
+  #          requested work resolution (>= 4x coarser than the source),
+  #          download otherwise. `download` and `stream` force one mode.
+  access: auto
+  retries: 4
+  timeout_s: 180
+
+# ---------------------------------------------------------------------- grid --
+grid:
+  epsg: 25832                    # must match the native CRS of the sources
+  buffer: 256.0                  # m added around the union of all domains
+  # Work grids are derived per resolution tier instead of rasterising
+  # everything at 1 m: a 48 km root domain at 32 m does not need 1 m detail,
+  # and processing it at 4 m cuts the ortho volume by a factor of ~16.
+  #   work_res(domain) = snap(clamp(pixel_size / detail_factor, min, max))
+  # Set `fixed: 1.0` to force one single 1 m tier for all domains.
+  work_resolution:
+    detail_factor: 8
+    min: 1.0
+    max: 8.0
+    snap: [1.0, 2.0, 4.0, 8.0]
+    fixed: null
+
+# ------------------------------------------------------------------- sources --
+sources:
+  # Which source fills each role. Omit any of these to take the region file's
+  # `defaults:` entry. `palmgeo sources <cfg>` lists the alternatives per role
+  # with their coverage and licence, and `--set <role>=<name>` writes the
+  # choice back here.
+  #   dtm dsm ortho buildings3d cadastre water   ->  sources.<role>: <name>
+  #   topo                                       ->  sources.street_type.source
+  dsm: dom1                      # NI: dom1 (date-paired with dgm1) | bdom20 (newer)
+  buildings3d: lod2
+  cadastre: alkis
+  street_type:
+    enabled: true
+    source: bdlm
+
+  # Orthophoto epoch selection -- the central accuracy/topicality trade-off.
+  # Each role picks ONE epoch per tile by score:
+  #   score = w_season * in(months) + w_recency * normalised(year)
+  ortho_epochs:
+    leaf_on:
+      months: [5, 6, 7, 8, 9]    # May-Sep: canopy developed
+      min_year: 2015
+      w_season: 1.0
+      w_recency: 0.35
+      required: true
+    leaf_off:
+      months: [3, 4]             # Mar/Apr: deciduous bare, conifers green
+      min_year: 2015
+      w_season: 1.0
+      w_recency: 0.35
+      required: false            # phenology is skipped where unavailable
+  # Try to satisfy the whole AOI from a single acquisition date first. Ortho
+  # tiles are 2 km, so per-tile epoch choice produces visible NDVI steps on the
+  # 2 km lattice; a uniform epoch removes them where coverage allows.
+  prefer_uniform_epoch: true
+  max_epoch_spread_days: 30      # tiles within this window count as "uniform"
+
+# ----------------------------------------------------------- classification --
+classification:
+  # NDVI is computed from 8-bit DOP digital numbers, NOT calibrated
+  # reflectance. Thresholds are therefore empirical -- run
+  # `palmgeo calibrate` to print the AOI NDVI histogram before trusting them.
+  #
+  # NDVI alone loses shaded crown halves and street trees over pavement, so the
+  # hue criterion and a height criterion are OR-ed in. See README §6.
+  vegetation:
+    ndvi_threshold: 0.12           # primary criterion
+    ndvi_threshold_relaxed: 0.05   # accepted together with the hue criterion
+    tall_green_is_vegetation: true # a green object above 2 m is a tree
+    greenness:
+      enabled: true
+      green_norm_min: 0.35
+      green_over_red: 0.05
+      green_over_blue: 0.005
+  phenology:
+    enabled: true                # needs both ortho epochs
+    evergreen_leaf_off_min: 0.30 # leaf-off NDVI >= -> stays green -> conifer
+    deciduous_leaf_off_max: 0.15 # leaf-off NDVI <  -> sheds leaves
+                                 # in between -> mixed_forest_woodland
+  ndsm:
+    min: 0.0
+    max: 120.0
+    smooth_radius: 0             # px median filter on nDSM, 0 = off
+
+# ------------------------------------------------------------------ buildings --
+buildings:
+  # The surface model, not the 3D building model, is the primary source.
+  # LoD2 gives one height per building, which is both blocky and blind to
+  # courtyards the cadastre still maps as built. Over the Hannover test area
+  # half the buildings span more than 5 m within their own footprint and 2.5 %
+  # of footprint area is effectively open. LoD2 stays as the fallback where the
+  # surface model has no value, and building_type/building_id always come from
+  # the cadastre either way.
+  height_source: ndsm            # ndsm | lod2
+  height_fallback: lod2          # used where the primary source has no value
+  ndsm_percentile: 75            # per-footprint percentile -> robust height
+  footprint_erosion: 1.0         # m, inward buffer before sampling nDSM
+  min_height: 2.5                # m; shorter footprints are dropped
+  max_height: 300.0
+  per_pixel_height: true         # keep the measured roof relief per pixel
+  per_pixel_tolerance: null      # optional cap at p99 x this; truncates real towers
+  ignore_vegetation_on_roofs: true  # branches over a roof are not structure
+  carve_open_areas: true         # footprint pixels below min_height are open
+  bridges:
+    enabled: true
+    depth: 3.0                   # m -> palm_csd bridge_depth
+    per_pixel_height: true       # deck height per pixel from the nDSM (README 8)
+    smooth_radius: 1             # px; median within the deck removes vehicles, railings
+    min_height: 0.5              # m; lower deck pixels are terrain the DTM already carries
+
+# ----------------------------------------------------------------- vegetation --
+vegetation:
+  height_from: ndsm              # vegetation_height source
+  lai:
+    enabled: false               # leave to palm_csd's height-based estimate
+    # NDVI->LAI is a crude empirical relation and easily worse than nothing;
+    # enable only with a locally validated formula:
+    formula: "3.618 * evi - 0.118"
+  trees:
+    # rentz      detect individual trees from the canopy height model and the
+    #            orthophoto (crown segmentation + broadleaf/conifer vote).
+    #            Runs on the finest work tier and needs it at 2 m or finer.
+    # external   take them from extra_inputs.trees.path
+    # unresolved no individual trees; canopy stays a patch
+    mode: rentz
+    segmentation:
+      ndvi_min: 0.20
+      green_norm_min: 0.35
+      green_over_red: 0.05
+      green_over_blue: 0.005
+      height_min: 2.0            # m, minimum tree height
+      smooth_sigma_m: 1.2
+      min_distance_m: 3.0        # minimum spacing of tree tops
+      min_patch_area_m2: 30.0
+      min_crown_area_m2: 3.0
+      edge_weight: 0.4           # weight of image edges in the watershed
+      halo_m: 24.0               # overlap so crowns are not cut at tile borders
+
+# --------------------------------------------------------------------- soil --
+soil:
+  source: constant               # constant | landuse | <plugin>
+
+# ------------------------------------------------------- user-supplied data --
+# Anything here overrides or supplements the derived products. This is the
+# hook for data that does not come from OpenGeoData.
+extra_inputs:
+  # Point vector file with individual trees -> palm_csd `trees` + `columns`.
+  trees:
+    path: null                   # e.g. data/baumkataster_hannover.gpkg
+    layer: null
+    columns:                     # source column -> palm_csd input variable
+      height: tree_height
+      crown: tree_crown_diameter
+      trunk: tree_trunk_diameter
+      species: tree_type_name
+  # role -> raster path. Replaces the derived product of the same name for all
+  # domains, e.g. an externally produced sealing map or building age raster.
+  rasters: {}
+  # Additional polygon files burnt in AFTER the ALKIS classification, in order.
+  surfaces: []
+    # - {path: data/dachbegruenung.gpkg, layer: gruendach, type: vegetation:short_grass}
+
+# ------------------------------------------------------------------ outputs --
+output:
+  # per-domain GeoTIFFs consumed by palm_csd (the RAM-efficient path)
+  domain_rasters: true
+  # 1 m/tier-resolution inspection layer for QGIS (single categorical COG)
+  inspection_raster: true
+  # polygonised version of the inspection layer -- can be very large,
+  # ~10^7 polygons for a 20x20 km AOI. Enable deliberately.
+  inspection_polygons: false
+  keep_ortho_bands: true         # needed by the hue criterion and by `trees`
+  cog: {compress: DEFLATE, predictor: 2, blocksize: 512, overviews: true}
+
+# ---------------------------------------------------- global palm_csd settings
+csd:
+  # Terrain blending at nest boundaries.
+  #
+  # false (default): every domain's terrain comes from the source data at its
+  #   own resolution, right up to the boundary. The nest keeps the orography it
+  #   was created to resolve. Cost: the nest and its parent disagree at the
+  #   shared boundary by up to the parent's grid spacing.
+  # true: palm_csd interpolates the parent's terrain onto the child grid and
+  #   merges the two over a 50-cell margin, so the boundary carries no step, and
+  #   snaps that strip to the PARENT's dz. Cost: the outer 50 cells of the nest
+  #   carry the parent's coarse terrain -- 100 m of a 2 m domain edge described
+  #   at 8 m. Use it when a terrain step at the boundary causes trouble.
+  #
+  # Applies to every nest. The root has no parent, so it is always false.
+  # A domain block may override it individually.
+  interpolate_terrain: false
+
+  # These end up in the driver's global attributes and travel with every copy of
+  # it. Fill them in for the person who will run the simulation -- do not inherit
+  # somebody else's authorship from a template, and do not invent an affiliation.
+  attributes:
+    author: NAME, EMAIL
+    contact_person: NAME, EMAIL
+    institution: INSTITUTION
+    acronym: ACRONYM
+    location: CITY                  # the city, for PALM's own bookkeeping
+    site: SITE                      # free text: which study, which campaign
+    origin_time: "2025-07-01 12:00:00 +00"   # simulation start, UTC
+    # `source` is the data attribution and is a licence obligation, not a
+    # courtesy. This one is for the Lower Saxony sources (LGLN, dl-de/by-2-0);
+    # for another region take it from the run's docs/DATA-SOURCES.md.
+    source: >
+      LGLN OpenGeoData Niedersachsen (DGM1, DOM1, DOP20, LoD2, ALKIS,
+      Basis-DLM), dl-de/by-2-0; processed with palmgeo
+  settings:
+    season: summer
+    height_high_vegetation_lower_threshold: 2.0
+    height_rel_resolved_vegetation_lower_threshold: 0.5
+    lad_method: Metal2003
+    lad_alpha: 5.0
+    lad_beta: 3.0
+    patch_height_default: 10.0
+    lai_low_vegetation_default: 3.0
+    lai_high_vegetation_default: 6.0
+    replace_invalid_input_values: true
+    rotation_angle: 0.0
+
+# ------------------------------------------------------------------ domains --
+# nx/ny follow the PALM convention: the raster has (nx+1) x (ny+1) pixels.
+# origin_x/origin_y are the lower-left corner in the CRS given by grid.epsg.
+#
+# vegetation_mode expands to palm_csd switches (override any of them directly):
+#   unresolved -> generate_vegetation_patches: false
+#                 replace_high_vegetation_types: false   (keeps forest z0)
+#                 generate_single_trees: false
+#   mixed      -> patches: true, replace: true, single_trees: false
+#   resolved   -> patches: true, replace: true, single_trees: true
+#
+# unresolved only for coarse domains (dz >= 16 m): forest keeps z0 = 2 m, and
+# PALM stops with LSM0048 when z0 >= 0.5 * (dz/2), i.e. at dz <= 8 m. Use mixed
+# below that.
+domains:
+
+  # The three nests of the committed example, one per vegetation mode:
+  # 2 km at 32 m, 1 km at 8 m, 256 m at 2 m. Replace them with your own.
+  root:
+    pixel_size: 32.0
+    nx: 63
+    ny: 63
+    dz: 32.0
+    origin_x: 548488.0
+    origin_y: 5801488.0
+    # `unresolved` is right here: the first grid level is 16 m, well above the
+    # 2 m roughness length forest keeps as an LSM surface type.
+    vegetation_mode: unresolved
+    generate_buildings_3d: false
+
+  N02:
+    pixel_size: 8.0
+    nx: 127
+    ny: 127
+    dz: 8.0
+    origin_x: 549000.0
+    origin_y: 5802000.0
+    domain_parent: root
+    # `mixed`, not `unresolved`: at 8 m forest kept as an LSM type would stop
+    # PALM with LSM0048 (see above).
+    vegetation_mode: mixed
+    generate_buildings_3d: false
+
+  N03:
+    pixel_size: 2.0
+    nx: 127
+    ny: 127
+    dz: 2.0
+    origin_x: 549256.0
+    origin_y: 5802256.0
+    domain_parent: N02
+    # Individual trees come from vegetation.trees.mode (rentz by default), so
+    # `resolved` needs no external data set here.
+    vegetation_mode: resolved
+    generate_buildings_3d: true
+    use_palm_z_axis: true

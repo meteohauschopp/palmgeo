@@ -1,0 +1,264 @@
+# ==============================================================================
+# Source registry: Egypt, global open geodata -- a CASE-STUDY port
+# ==============================================================================
+# Built for, and measured over, Aswan. Every source here is staged by
+# repository/ports/eg/stage_sources.py, which takes the area and the run's
+# work directory on its command line; nothing below names a site.
+#
+# No national open geodata portal exists for Egypt comparable to Germany's
+# LGLN. All sources below are globally available, free-of-charge products.
+#
+# NON-COMMERCIAL BY DEFAULT: the default terrain source, FABDEM, is
+# CC BY-NC-SA 4.0. A driver built with these defaults may not be used
+# commercially and must be shared alike. `palmgeo sources` reports this before
+# anything is downloaded; a commercial use needs another terrain source.
+#
+# DATA QUALITY NOTE -- this is a FLOOR, not a target:
+#   Copernicus DEM GLO-30 is 30 m -- coarse for a 2 m PALM domain. The
+#   pipeline still produces a valid driver; the surface type classification
+#   and building/vegetation heights are simply based on 30 m aggregated
+#   signals rather than sub-metre LiDAR. Sentinel-2 orthophotos are 10 m
+#   with NIR -- adequate for broad land-use classes but too coarse for the
+#   per-pixel NDVI classification that makes the NI/NYC ports accurate.
+#   If higher-resolution local data becomes available (Egyptian Survey
+#   Authority DEMs, commercial satellite imagery), they should replace
+#   these entries.
+#
+# Roles understood by the pipeline (see palmgeo/sources.py):
+#   dtm          digital terrain model            -> zt
+#   dsm          digital surface model            -> nDSM (with dtm)
+#   ortho        orthophoto with NIR band         -> NDVI / phenology
+#   cadastre     land use + footprints            -> surface types, buildings
+#   topo         topographic vector model         -> street_type
+#
+# Licence:
+#   FABDEM: CC BY-NC-SA 4.0 (attribution, non-commercial, share-alike)
+#   Copernicus DEM: Copernicus DEM licence (free, attribution, no NC)
+#   Sentinel-2: Copernicus Sentinel data, free and open (attribution)
+#   OSM: ODbL (attribution + share-alike on derived data)
+#   Google Open Buildings v3: CC BY 4.0 (attribution), fused into the cadastre
+# ==============================================================================
+
+region: EG
+crs: EPSG:32636                 # WGS 84 / UTM zone 36N (most of Egypt)
+attribution: >
+  FABDEM (University of Bristol), CC BY-NC-SA 4.0; Copernicus DEM GLO-30
+  (ESA/Copernicus), free licence; Sentinel-2 L2A (ESA/Copernicus), free and
+  open; OpenStreetMap contributors, ODbL; Google Open Buildings v3, CC BY 4.0.
+  Processed with palmgeo.
+
+# ---------------------------------------------------------------------------
+# Which source fills each role, unless the run configuration overrides it.
+#
+# These names used to be hard-coded in palmgeo/config.py -- Lower Saxony's
+# product names, in code that claims to know no product names. They belong
+# here, where a region declares its own defaults. A role with exactly one
+# source needs no entry; a role with several does, because otherwise the
+# choice would be made by dictionary order.
+# ---------------------------------------------------------------------------
+defaults:
+  dtm: fabdem
+  dsm: copernicus_dem
+  ortho: sentinel2
+  cadastre: osm_cadastre
+  topo: osm_highways
+
+sources:
+
+  # ---------------------------------------------------------------- terrain --
+  # FABDEM (Forest And Buildings removed Copernicus DEM) as the bare-earth
+  # DTM. Derived from Copernicus DEM by the University of Bristol to strip the
+  # building/canopy height bias, so nDSM = Copernicus DEM - FABDEM is a
+  # genuine (if 30 m coarse) building + vegetation height field -- exactly the
+  # semantics the pipeline's `nDSM` stage needs. 30 m is very coarse for a
+  # 2 m domain, but it is the only globally available, validated, bare-earth
+  # DTM. License CC BY-NC-SA 4.0 -- acceptable for non-commercial research,
+  # not for a commercial driver (see sources_global.yml's fabdem notes).
+  #
+  # The staging script picks the 1-degree tile from its --bbox.
+  fabdem:
+    role: dtm
+    licence: CC-BY-NC-SA-4.0
+    licence_holder: University of Bristol
+    kind: single_file
+    index_url: "{workdir}/staging/indices/dtm_eg.json"
+    index_crs: EPSG:32636
+    url_field: staged_path
+    date_field: null
+    tile_field: tile_id
+    tile_size: 110000             # m, tile covers the whole AOI
+    resolution: 30.0
+    nodata: -9999.0
+    format: cog
+    vertical_crs: EGM2008
+    notes: >
+      V1.2, 1 arcsec (~30 m), EPSG:4326 (geographic). Staged by
+      ports/eg/stage_sources.py: downloaded from the University of Bristol data
+      repository / Hugging Face links-ads/fabdem-v12, reprojected to
+      EPSG:32636 over the AOI. http/https download + gdalwarp (same pattern
+      as stage_dem below).
+
+  # ------------------------------------------------------------ surface model --
+  # Copernicus DEM GLO-30 as the DSM. Its nDSM partner is fabdem above
+  # (both derive from the same underlying Copernicus DEM, so the difference
+  # is internally consistent). This is the ONLY globally available free DSM.
+  # plan_tiles calls load_index() unconditionally for the dsm role, so this
+  # single source is exposed through a staged one-feature GeoJSON index whose
+  # `staged_path` is the local, reprojected copy the staging script writes.
+  copernicus_dem:
+    role: dsm
+    licence: copernicus
+    licence_holder: ESA / Copernicus
+    kind: tile_index
+    index_url: "{workdir}/staging/indices/dsm_eg.json"
+    index_crs: EPSG:32636
+    url_field: staged_path
+    date_field: null
+    tile_field: tile_id
+    tile_size: 110000
+    resolution: 30.0
+    nodata: -9999.0              # what the staging script writes
+    vertical_crs: EGM2008
+    format: cog
+    notes: >
+      30 m, natively EPSG:4326 (geographic). A true DSM (includes buildings
+      and vegetation). palmgeo reads without reprojecting, so the staging
+      script (`dsm`) streams the S3 COG through /vsicurl, warps it to
+      EPSG:32636 and the index points at that local file. nDSM =
+      this - fabdem (both EGM2008, internally consistent).
+
+  # ------------------------------------------------------------ orthophoto --
+  # Sentinel-2 L2A, 10 m, 13 bands including NIR (band 8, 10 m).
+  # The staging script queries the Earth Search STAC API, downloads the
+  # least-cloudy scene's B02/B03/B04/B08 bands, merges them into ONE
+  # 4-band (R,G,B,NIR ordered to palmgeo's expected band layout) COG over
+  # the AOI, and writes the index this entry points at. Because palmgeo
+  # reads red/green/blue/nir from a single file (steps/tiles.py:235), the
+  # merging happens in staging, exactly like the NYC port's single-mosaic
+  # ortho approach.
+  sentinel2:
+    role: ortho
+    # Sentinel-2 L2A is surface reflectance scaled by 10 000, not 8-bit
+    # counts. Without this the kept bands saturate at 255 and the greenness
+    # criterion can never fire -- see steps/tiles.py::_to_byte_cube.
+    value_max: 10000
+    licence: copernicus
+    licence_holder: ESA / Copernicus
+    kind: tile_index
+    index_url: "{workdir}/staging/indices/ortho_eg.json"
+    index_crs: EPSG:32636
+    url_field: staged_path
+    date_field: datetime
+    tile_field: tile_id
+    tile_size: 110000            # m, Sentinel-2 tile footprint ~110 km
+    resolution: 10.0
+    format: cog
+    bands: {red: 1, green: 2, blue: 3, nir: 4}   # staged RGBN order (1-based)
+    notes: >
+      10 m is the hard floor for globally available free imagery with a NIR
+      band. For Aswan (arid, ~24 N) there is essentially no seasonal
+      deciduous signal -- phenology is disabled in the run config. The
+      staging script selects the least cloudy Sentinel-2 scene over the AOI
+      from the Earth Search STAC API (earth-search.aws.element84.com/v1,
+      collection sentinel-2-l2a). L2A provides atmospherically corrected
+      surface reflectance and a Scene Classification Layer (SCL) for cloud
+      masking. Cloud cover over Aswan is very low (~5 % annual mean), so
+      finding a clear scene is straightforward.
+
+  # ------------------------------------------------- cadastre (OSM) --------
+  # OpenStreetMap landuse polygons, building footprints, and water bodies.
+  # Coverage in Aswan city centre is reasonable (verified via OSM stats:
+  # ~3000 buildings, ~500 landuse polygons in a 4x4 km bbox). Quality is
+  # variable -- some buildings lack height tags, landuse classification is
+  # incomplete in newer districts.
+  osm_cadastre:
+    role: cadastre
+    # Two licences, because the staging script's `buildings` step fills OSM's
+    # gaps with Google Open Buildings footprints.
+    licence: [ODbL-1.0, CC-BY-4.0]
+    licence_holder:
+      ODbL-1.0: OpenStreetMap contributors
+      CC-BY-4.0: Google (Open Buildings v3)
+    kind: single_file
+    index_url: "{workdir}/staging/indices/cadastre_eg.json"
+    index_crs: EPSG:32636
+    url_field: staged_path
+    date_field: null
+    format: gpkg_zip
+    layers:
+      landuse:
+        name: landuse
+        key_field: osm_key        # "landuse:residential" composite key
+        label_field: name
+      buildings:
+        name: buildings
+        id_field: osm_id
+        function_field: building   # OSM building=* tag value
+        label_field: name
+        height_field: osm_height   # metres, normalised by the staging script
+    notes: >
+      FUSED from Overpass API queries by the staging script. Two tag keys
+      are composed into one key_field: "landuse:<value>" and "natural:<value>"
+      (see mapping_eg.yml for the full vocabulary). Buildings carry the OSM
+      building=* tag as function_field (e.g. "house", "apartments",
+      "commercial"). The staging script folds OSM's height tags
+      (height / building:height / building:levels x 3.2 m per storey) into a
+      numeric `osm_height` column, which the run config selects through
+      `buildings.height_field`. The `buildings` step then adds Google Open
+      Buildings v3 footprints (CC BY 4.0) wherever no OSM footprint overlaps;
+      they carry no height and no function.
+
+      MEASURED COVERAGE (2026-09-08, 4 025 distinct footprints in the AOI):
+      32 buildings carry `building:levels` and 1 carries `height` -- 0.8 %,
+      NOT the "~40 %" this note claimed before anyone counted. Tagged heights
+      are therefore a rounding error in Aswan, and the height model rests on
+      the 30 m nDSM plus the `buildings.height_default` typological prior.
+
+  # --------------------------------------------------- topo (streets) ------
+  # OSM highway network. PALM's street_type enum IS the OSM highway taxonomy,
+  # so this needs no translation table -- the raw tag value is used directly.
+  # fetch_roads (steps/vectors.py:613) reads `url` (NOT index_url), unzips,
+  # and rglobs for a *.shp named after layers.roads.name -- so the staging
+  # script delivers the highways as a shapefile inside a zip.
+  osm_highways:
+    role: topo
+    licence: ODbL-1.0
+    licence_holder: OpenStreetMap contributors
+    kind: single_file
+    url: "{workdir}/staging/topo_eg.shp.zip"
+    format: shapefile_zip
+    layers:
+      roads:
+        name: highways
+        class_field: highway       # OSM highway=* tag; mapped identity in mapping_eg
+    notes: >
+      OSM highway network extracted by the staging script and delivered as a
+      zipped shapefile (fetch_roads requires *.shp). The highwway tag value
+      IS PALM's street_type enum already, so mapping_eg.yml maps it to itself
+      (identity). Aswan's Corniche, the Aswan Bridge, and major arterials are
+      well-mapped in OSM.
+
+  # --------------------------------------------- water (fused) --------------
+  # Water polygons from two complementary OSM sources:
+  #   1. natural=water (inland water bodies -- Nile, reservoirs, ponds)
+  #   2. Coastline water polygons (sea-connected water, not relevant for
+  #      Aswan but included for completeness)
+  # Fused into the cadastre's landuse layer with synthetic "WTR" code.
+  # See mapping_eg.yml's "WTR" rule.
+  #
+  # The Nile river through Aswan is a `natural=water` + `water=river`
+  # MULTIPOLYGON RELATION whose outer boundary is split across many member
+  # ways. Two things must both be right for it to reach the driver, and in
+  # the 2026-09-07 build neither was:
+  #
+  #   1. The relation must be stitched (linemerge + polygonize over its
+  #      outer members, minus its inner rings) rather than approximated by
+  #      its first member way. Stitched it is 11.5 km2, of which 2.44 km2
+  #      -- 15.3 % of the domain -- falls inside the root domain.
+  #   2. The resulting polygons must be FUSED INTO THE CADASTRE `landuse`
+  #      LAYER with a WTR_* `osm_key`. palmgeo has no separate water role;
+  #      water reaches PALM only through mapping_eg.yml's landuse lookup.
+  #      A standalone water GeoPackage is read by nothing.
+  #
+  # `ports/eg/stage_sources.py water` now does both, and must run after `osm`
+  # because it rewrites the cadastre that `osm` produces.

@@ -1,0 +1,332 @@
+# ==============================================================================
+# Semantic mapping: OpenStreetMap tags -> PALM surface types (Aswan, Egypt)
+# ==============================================================================
+# Companion to sources_eg.yml. Adapted for an arid/desert environment where
+# the dominant surfaces are sand, rock, sparse irrigated vegetation, and
+# compact urban fabric along the Nile.
+#
+# KEY FORMAT: OSM land classification is split across three tag keys
+# (landuse=*, natural=*, leisure=*). The staging script composes one
+# composite key per feature: "landuse:residential", "natural:wood", etc.
+# The lookup below is keyed on exactly that composite string.
+#
+# Unlike mapping_ni.yml (which exploits ALKIS hierarchical codes with
+# longest-prefix matching), OSM tags are flat -- each key is exact-match.
+# The pipeline still uses the same longest-prefix mechanism; it simply
+# never fires here because every key is already maximally specific.
+#
+# ARID CLIMATE ADJUSTMENTS vs. the NI/global defaults:
+#   - fallback low_ndvi = vegetation:desert (not pavement:asphalt) because
+#     unpaved bare ground dominates outside the built core
+#   - default_high_vegetation = vegetation:evergreen_broadleaf_trees
+#     (date palms, ornamental evergreens in Aswan -- NOT deciduous)
+#   - phenology is DISABLED in the run config: at 24 N in the Sahara,
+#     there is no meaningful leaf-on/leaf-off cycle
+#   - desert/semidesert types are used aggressively for natural=* classes
+# ==============================================================================
+
+region: EG
+
+# ------------------------------------------------------------------ defaults --
+fallback:
+  high_ndvi: vegetation:short_grass
+  low_ndvi:  vegetation:desert           # bare sand/rock, not paved
+  high_veg:  vegetation:evergreen_broadleaf_trees   # date palms, evergreens
+
+# Aswan's tall vegetation is predominantly date palms (Phoenix dactylifera)
+# and other evergreen ornamentals planted along the Nile Corniche and in
+# parks. Deciduous trees are rare.
+default_high_vegetation: vegetation:evergreen_broadleaf_trees
+
+# What a tree detected by `vegetation.trees.mode: rentz` becomes in palm_csd
+# (an index into palm_csd/data/tree_defaults.csv, plus a species label). These
+# are the Central European values of mapping_ni.yml, NOT chosen for this
+# region -- pick representative entries from tree_defaults.csv before
+# relying on single trees here.
+single_trees:
+  conifer:   {tree_type: 1,  species: Abies}    # shape 3 (cone)
+  broadleaf: {tree_type: 33, species: Fagus}    # shape 1 (sphere)
+
+phenology:
+  # Not used (disabled in run config). Listed for schema completeness.
+  # At 24 N in the Sahara, NDVI is essentially constant year-round.
+  evergreen: vegetation:evergreen_broadleaf_trees
+  deciduous: vegetation:deciduous_broadleaf_trees
+  mixed:     vegetation:mixed_forest_woodland
+
+# ------------------------------------------------------- OSM landuse/natural/leisure
+landuse:
+
+  # ---- landuse=* (settlement / built) ---------------------------------------
+  "landuse:residential":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "landuse:commercial":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "landuse:retail":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "landuse:industrial":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "landuse:railway":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  pavement:gravel
+  "landuse:construction":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi:  vegetation:bare_soil
+  "landuse:brownfield":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+  "landuse:military":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+
+  # ---- landuse=* (agriculture) -----------------------------------------------
+  # Nile valley agriculture: irrigated crops (date palms, sugar cane, alfalfa)
+  "landuse:farmland":
+    high_ndvi: vegetation:irrigated_crops
+    low_ndvi:  vegetation:bare_soil
+  "landuse:farmyard":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:gravel
+  "landuse:orchard":
+    high_ndvi: vegetation:evergreen_broadleaf_trees   # date palm orchards
+    high_veg:  vegetation:evergreen_broadleaf_trees
+    high_veg_fixed: true
+    low_ndvi:  vegetation:bare_soil
+  "landuse:vineyard":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+  "landuse:meadow":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+  "landuse:allotments":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+  "landuse:forest":
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:evergreen_broadleaf_trees
+    low_ndvi:  vegetation:bare_soil
+
+  # ---- landuse=* (recreation / green) ----------------------------------------
+  "landuse:cemetery":
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:evergreen_broadleaf_trees
+    low_ndvi:  pavement:paving_stones
+  "landuse:recreation_ground":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "landuse:quarry":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi:  vegetation:bare_soil
+
+  # ---- natural=* --------------------------------------------------------------
+  "natural:wood":
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:evergreen_broadleaf_trees    # date palm groves
+    low_ndvi:  vegetation:bare_soil
+  "natural:scrub":
+    high_ndvi: vegetation:deciduous_shrubs
+    low_ndvi:  vegetation:semidesert
+  "natural:heath":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:semidesert
+  "natural:grassland":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:desert
+  "natural:wetland":
+    high_ndvi: vegetation:bogs_marshes
+    low_ndvi:  vegetation:bogs_marshes
+  "natural:sand":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:desert               # Sahara sand dunes
+  "natural:beach":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:desert
+  "natural:bare_rock":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi:  vegetation:bare_soil
+  "natural:desert":
+    high_ndvi: vegetation:semidesert
+    low_ndvi:  vegetation:desert
+  "natural:scree":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi:  vegetation:bare_soil
+  "natural:shingle":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi:  vegetation:bare_soil
+  "natural:bare_soil":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi:  vegetation:bare_soil
+
+  # ---- leisure=* ---------------------------------------------------------------
+  "leisure:park":
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:evergreen_broadleaf_trees
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "leisure:garden":
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:evergreen_broadleaf_trees
+    low_ndvi:  pavement:gravel
+  "leisure:pitch":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:artificial_turf
+  "leisure:golf_course":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:desert
+  "leisure:stadium":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+
+  # ---- amenity=* ---------------------------------------------------------------
+  "amenity:parking":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "amenity:school":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "amenity:hospital":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "amenity:university":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "amenity:place_of_worship":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+
+  # ---- keys the 2026-09-07 run reported as unmapped ---------------------------
+  # These fell through to the arid `fallback` (desert / short grass), which is
+  # wrong for all three: a settling basin is water, a plant nursery is
+  # irrigated cultivation, and a village green is watered amenity grass.
+  "landuse:basin":
+    water: water:pond
+  "landuse:plant_nursery":
+    high_ndvi: vegetation:irrigated_crops
+    low_ndvi:  vegetation:bare_soil
+  "landuse:village_green":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+
+  # ---- water, fused into this layer by ports/eg/stage_sources.py `water` ------------
+  # The staging step classifies each OSM water body from its `water=*` /
+  # `waterway=*` subtag and emits one of these synthetic codes. Splitting by
+  # type is not cosmetic: PALM assigns river, lake and pond different default
+  # water temperatures and roughness lengths, so putting the Nile in the lake
+  # class would give a 2.4 km2 body of moving water standing-water physics.
+  #
+  # Through the Aswan domain the Nile riverbank multipolygon dominates
+  # (~15 % of the domain by area); the rest is irrigation canals and a
+  # settling basin.
+  "WTR_RIV":
+    water: water:river               # the Nile, its canals and side channels
+  "WTR_LAKE":
+    water: water:lake                # reservoirs (none inside this domain)
+  "WTR_POND":
+    water: water:pond                # basins, ornamental pools
+  # Retained so a cadastre staged before the WTR_* split still resolves
+  # instead of falling through to the NDVI fallback as bare desert.
+  "WTR":
+    water: water:river
+
+# ------------------------------------------------------------- building_type --
+# OSM building=* values for Aswan. Most buildings are residential (concrete/
+# masonry, 2-5 storeys). Commercial buildings line the Corniche and main
+# streets. No construction year data is available from OSM.
+building_type:
+  default_age: "1951_2000"
+  default: residential
+  by_gfk:
+    "house": residential
+    "residential": residential
+    "apartments": residential
+    "detached": residential
+    "terrace": residential
+    "semidetached_house": residential
+    "bungalow": residential
+    "commercial": office
+    "office": office
+    "industrial": office
+    "warehouse": office
+    "retail": office
+    "hotel": office
+    "hostel": office
+    "motel": office
+    "kiosk": office
+    "church": office
+    "mosque": office
+    "cathedral": office
+    "chapel": office
+    "temple": office
+    "synagogue": office
+    "public": office
+    "government": office
+    "civic": office
+    "university": office
+    "school": office
+    "hospital": office
+    "clinic": office
+    "fire_station": office
+    "police": office
+    "prison": office
+    "barn": office
+    "farm_auxiliary": office
+    "greenhouse": office
+    "stable": office
+    "garage": office
+    "garages": office
+    "carport": office
+    "shed": office
+    "Construction": office
+    "construction": office
+
+# --------------------------------------------------------------------- soil --
+# Aswan sits on the Nubian Sandstone Aquifer System. Surface soils are
+# predominantly coarse sand and gravel (Western Desert) or fine alluvial
+# sediment (Nile floodplain). A constant type is the only option without
+# a real soil texture map.
+soil:
+  constant: coarse                   # = 1, sandy desert soil
+
+# --------------------------------------------------------------- bridges --
+bridges:
+  values: []
+  building_type: bridges
+  # OSM bridge tagging in Aswan is sparse. The Aswan Bridge and the
+  # railway bridge over the Nile exist in OSM but may not carry the
+  # standard bridge= tags needed for extraction. Without explicit bridge
+  # polygons, palm_csd omits them (logged warning, no failure).
+
+# --------------------------------------------------------------- street_type --
+# PALM's street_type enum IS the OSM `highway` taxonomy (see
+# palmgeo/palm_types.py). The raw OSM highway tag therefore maps to itself
+# (identity) -- fetch_roads reads `highway` as class_field and looks up each
+# value in `by_value`. OSM values that the staging script does not emit
+# simply do not appear; `default` catches the rest.
+street_type:
+  field: highway
+  default: unclassified
+  by_value:
+    motorway: motorway
+    motorway_link: motorway_link
+    trunk: trunk
+    trunk_link: trunk_link
+    primary: primary
+    primary_link: primary_link
+    secondary: secondary
+    secondary_link: secondary_link
+    tertiary: tertiary
+    tertiary_link: tertiary_link
+    unclassified: unclassified
+    residential: residential
+    service: service
+    living_street: living_street
+    track: track
+    path: path
+    cycleway: cycleway
+    footway: footway_pedestrian
+    pedestrian: footway_pedestrian
+    steps: footway_pedestrian
+    raceway: raceway

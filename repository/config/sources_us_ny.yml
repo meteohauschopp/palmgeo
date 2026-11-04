@@ -1,0 +1,338 @@
+# ==============================================================================
+# Source registry: New York City, NYC/NYS open geodata
+# ==============================================================================
+# A CASE-STUDY port: the first non-German region, built for a run over
+# Manhattan and both river banks and carried through to finished drivers.
+# Verified against the LIVE services listed under `native` in each entry's
+# notes. Every source is staged by repository/ports/us_ny/, which takes the
+# area and the run's work directory on its command line. Read PORTING.md
+# (section 5b is this port's write-up) before trusting it beyond that run.
+#
+# THE STAGING INDIRECTION -- READ THIS FIRST
+# -------------------------------------------
+# Unlike sources_ni.yml, this file does NOT point at the native NYC/NYS
+# endpoints directly. Two hard constraints force a staging step in between:
+#
+#   1. CRS/units. Every NYC/NYS source below is natively NAD83 State Plane
+#      Long Island, US SURVEY FEET (EPSG:2263). palm_csd and palmgeo's own
+#      grid arithmetic (dx, dy, dz, extent) are metric throughout. palmgeo
+#      also refuses to reproject raster tiles at load time (PORTING.md §1) --
+#      by design, since reprojecting every tile on the fly is both lossy and
+#      slow for a whole-city AOI.
+#   2. Layer fusion. `steps/vectors.py::fetch_cadastre` hard-codes ONE zipped
+#      GeoPackage per cadastre source, with the sublayers named in `layers:`
+#      below living inside it (mirrors the ALKIS GeoPackage in sources_ni.yml
+#      exactly). NYC publishes land use (MapPLUTO) and building footprints
+#      (Building Footprints) as two SEPARATE datasets, and `cfg.source_for_role`
+#      (config.py:304) selects exactly one named source per role -- no merging
+#      of several active cadastre entries. They must be fused into one file
+#      before palmgeo ever sees them.
+#
+# `repository/ports/us_ny/stage_sources.py` is what does both: it downloads
+# from the real endpoints, reprojects rasters to EPSG:6347, and fuses the two
+# cadastre datasets into one GeoPackage with `landuse`/`buildings` layers --
+# then writes the *_us_ny.geojson tile indices below and the fused GeoPackage.
+# Run it before `palmgeo vectors`/`rasters`; `palmgeo plan` does not need its
+# output; a per-source `notes:` documents the real (unstaged) endpoint under
+# `native:` and the AGENCY THAT LICENSES IT, so nothing about the true
+# provenance is hidden behind the staging step.
+#
+# Roles understood by the pipeline (see palmgeo/sources.py):
+#   dtm          digital terrain model            -> zt
+#   dsm          digital surface model            -> nDSM (with dtm)
+#   ortho        orthophoto with NIR band         -> NDVI / phenology
+#   cadastre     land use + footprints            -> surface types, buildings
+#   (buildings3d and topo are not wired for this port -- see notes at the end)
+#
+# Source kinds (see PORTING.md §2). NOTE: `load_index()` (sources.py:207)
+# is itself kind-agnostic -- it ALWAYS reads `index_url` as a GeoJSON
+# FeatureCollection, regardless of what `kind:` says below. `kind` here is
+# documentation for a human porter, not a runtime switch. What IS a hard
+# runtime constraint: `plan_tiles` (steps/tiles.py:87) calls `load_index()`
+# unconditionally for dtm/dsm/ortho, so those three roles MUST have an
+# `index_url`-style GeoJSON index -- there is no single_file code path for
+# them (unlike `topo`, which fetch_roads() handles separately).
+# ==============================================================================
+
+region: US-NY
+crs: EPSG:6347                  # NAD83(2011) / UTM zone 18N, metres -- the
+                                 # staging target; native NYC/NYS CRS is
+                                 # EPSG:2263 (see header)
+attribution: >
+  Elevation and imagery: City of New York / NYS ITS GIS Program Office.
+  Land use, building footprints: NYC Department of City Planning / NYC Office
+  of Technology and Innovation. Open data, no registration required; carries
+  no equivalent of the LGLN dl-de/by-2-0 clause, but cite the source agency.
+  ---
+  NEW JERSEY (added 2026-09-07, iteration 3). Every New York source above
+  stops at a New York border, so once the domain reaches the Hudson's west
+  bank each role is filled from a second, national or global source. These
+  carry their OWN attribution requirements and must be cited too:
+    terrain, surface  U.S. Geological Survey 3DEP lidar (public domain).
+                      NOTE the vertical datum: these are ellipsoidal heights,
+                      NAVD88 for the NYC products. Measured offset +31.65 m,
+                      applied in ports/us_ny/stage_nj_supplement.py::merge_into_nyc().
+    imagery           USDA-FSA NAIP 2023, 0.3 m 4-band (public domain),
+                      via the Microsoft Planetary Computer (SAS-signed).
+    land use, buildings
+                      OpenStreetMap contributors, **ODbL 1.0**. This is a
+                      SHARE-ALIKE licence and the only non-public-domain
+                      input in this port: any distributed derivative of this
+                      driver must credit "(c) OpenStreetMap contributors" and
+                      respect ODbL. Extract via Geofabrik.
+
+# ---------------------------------------------------------------------------
+# Which source fills each role, unless the run configuration overrides it.
+#
+# These names used to be hard-coded in palmgeo/config.py -- Lower Saxony's
+# product names, in code that claims to know no product names. They belong
+# here, where a region declares its own defaults. A role with exactly one
+# source needs no entry; a role with several does, because otherwise the
+# choice would be made by dictionary order.
+# ---------------------------------------------------------------------------
+defaults:
+  dtm: dem2017
+  dsm: dsm2017
+  ortho: nysdop_4bd
+  cadastre: nyc_cadastre
+
+sources:
+
+  # ---------------------------------------------------------------- terrain --
+  dem2017:
+    role: dtm
+    licence: [us-municipal-open-data, us-public-domain]
+    licence_holder:
+      us-municipal-open-data: City of New York (NYC DoITT / OTI)
+      us-public-domain: U.S. Geological Survey 3DEP (New Jersey)
+    kind: tile_index                # really one feature; see header
+    index_url: "{workdir}/staging/indices/dtm_us_ny.geojson"
+    index_crs: EPSG:6347             # staged index is already in the target CRS
+    url_field: staged_path           # local path written by the staging script
+    date_field: acquired
+    tile_field: tile_id
+    tile_size: 9500                  # m, generous: one feature covers all of Manhattan
+    resolution: 0.3048                # 1 ft, native; staged output is resampled to work res
+    nodata: -9999.0
+    format: cog
+    vertical_crs: EPSG:5703           # NAVD88
+    notes: >
+      native: NYC Open Data "Topobathymetric LiDAR Data (2017)"
+      (data.cityofnewyork.us/City-Government/Topobathymetric-LiDAR-Data-2017-/7sc8-jtbz),
+      attachment Bare_Earth_Topographic_Hydroflattened.zip, VERIFIED via the
+      Socrata attachment API on 2026-09-03: 15 571 266 230 bytes, HTTP range
+      requests supported (Accept-Ranges: bytes), citywide (not pre-tiled).
+      Flown 2017-05-03 to 2017-07-26 (topographic component). 1 ft, EPSG:2263,
+      NAD83/NAVD88. Same campaign as dsm2017 below -- date-paired like
+      dgm1/dom1 in sources_ni.yml, which is why this is the default dtm
+      rather than the older (2010) "1 foot DEM" dataset.
+      STAGED AND VERIFIED 2026-09-04: internally one citywide GeoTIFF
+      (Bare_Earth_Topographic_Hydroflattened/bh_NYC.tif, 154859x153378 px,
+      LZW, 512x512 blocks, WITH overviews), clipped+reprojected with
+      gdalwarp to 10216x21736 px at 1 m over AOI_TARGET_BOUNDS.
+      CRITICAL -- VERTICAL UNITS: the pixel VALUES are US survey feet
+      (EPSG:2263 is "NAD83 / New York Long Island (ftUS)"), and gdalwarp
+      converts coordinates but never values. repository/tools/ft_to_m.py
+      does that conversion block-wise and normalises the -3.4e38 fill to the
+      -9999.0 declared above; skipping it inflates terrain by 3.28x SILENTLY.
+      Post-conversion statistics, as the sanity check that it worked:
+      min -15.12 m (river bed -- this is a TOPOBATHYmetric survey), mean
+      12.90 m, max 81.26 m (Bennett Park, Manhattan's highest natural point,
+      is ~80.8 m).
+
+  # ------------------------------------------------- surface model (LiDAR) --
+  dsm2017:
+    role: dsm
+    licence: [us-municipal-open-data, us-public-domain]
+    licence_holder:
+      us-municipal-open-data: City of New York (NYC DoITT / OTI)
+      us-public-domain: U.S. Geological Survey 3DEP (New Jersey)
+    kind: tile_index
+    index_url: "{workdir}/staging/indices/dsm_us_ny.geojson"
+    index_crs: EPSG:6347
+    url_field: staged_path
+    date_field: acquired
+    tile_field: tile_id
+    tile_size: 9500
+    resolution: 0.3048
+    nodata: -9999.0
+    format: cog
+    pair_with: dem2017
+    pair_on: [tile_field, date_field]
+    notes: >
+      native: same NYC Open Data dataset as dem2017, attachment
+      Highest_Hit.zip. VERIFIED 2026-09-03: 30 067 537 190 bytes, range
+      requests supported, citywide, same 2017 campaign as dem2017 -- so the
+      nDSM this pair produces is temporally consistent, unlike a bdom20-style
+      mixed-epoch fallback.
+      STAGED AND VERIFIED 2026-09-04: internal file is Highest_Hit/hh_NYC.tif
+      (NOT bh_NYC.tif -- the dtm's name; an earlier comment guessed wrong
+      before `unzip -l` was consulted). Same gdalwarp + ft_to_m.py treatment
+      as dem2017, producing a pixel-identical 10216x21736 grid at 1 m -- which
+      is what makes nDSM = dsm - dtm well defined without resampling.
+      Post-conversion: min -15.07 m, mean 21.73 m, max 541.72 m. That maximum
+      is One World Trade Center (541.3 m to the spire tip) -- an independent
+      confirmation that both the unit conversion and the georeferencing are
+      right. Mean DSM - mean DTM = 8.8 m, a plausible average build-up height
+      over an AOI that also contains rivers, parks and streets.
+
+  # ------------------------------------------------------------ orthophoto --
+  nysdop_4bd:
+    role: ortho
+    # 8-bit imagery. Stated rather than left to the default, so that the
+    # value is a claim somebody checked.
+    value_max: 255
+    licence: [us-municipal-open-data, us-public-domain]
+    licence_holder:
+      us-municipal-open-data: NYS ITS GIS Program Office
+      us-public-domain: USDA-FSA NAIP (New Jersey)
+    kind: tile_index
+    index_url: "{workdir}/staging/indices/ortho_us_ny.geojson"
+    index_crs: EPSG:6347
+    url_field: staged_path
+    url_field_fallback: null
+    date_field: acquired
+    tile_field: tile_id
+    # The index is ONE feature covering the whole AOI (a mosaic), not the 413
+    # native tiles -- NYSDOP tiles are 762 m while palmgeo's work tiles are
+    # 1 km and steps/tiles.py binds exactly one ortho item per work tile, so
+    # per-tile indexing left ~80 % of every work tile black. PORTING.md
+    # pitfall 4. See ports/us_ny/stage_sources.py::build_ortho_index().
+    tile_size: 22000                 # m, one feature spans the AOI
+    resolution: 0.5                  # m, the mosaic's resolution (native is
+                                      # 0.1524 m = 6 in; mosaicking at 0.5 m
+                                      # keeps 4x oversampling over the 2 m
+                                      # work tier at a tenth of the size)
+    format: cog
+    bands: {red: 1, green: 2, blue: 3, nir: 4}
+    notes: >
+      native: NYS ITS GIS Program Office ArcGIS index service, layer
+      'ind24l_half_ft_4bd_nyc' (id 5) on
+      orthos-np.its.ny.gov/arcgis/rest/services/vector/ortho_indexes/MapServer,
+      part of the NY Statewide Digital Orthoimagery Program (NYSDOP) 2024
+      Long Island-zone, half-foot, 4-band (RGB+NIR) product. VERIFIED
+      2026-09-03 with a live spatial query over the Manhattan run's area
+      (widened once after the first `plan` run showed the initial, tighter
+      query missed the domain's buffer margin): 413 real tiles returned over
+      the widened box (300 on the first, tighter pass), fields
+      FILENAME/FTP_PATH/DIRECT_DL, each a ~2500x2500 ft (762x762 m) JP2
+      inside a per-tile zip at gisdata.ny.gov. The raw export is cached as
+      {workdir}/staging/nysdop_2024_aoi_native.geojson
+      (native geometry CRS WGS84/EPSG:4326 as returned by the ArcGIS
+      f=geojson query) -- ports/us_ny/stage_sources.py reprojects and restages it.
+      PIXEL DATA VERIFIED 2026-09-03 by actually downloading and opening tile
+      000260: real native raster CRS is EPSG:6539 (NAD83(2011) State Plane NY
+      Long Island, US feet) -- NOT EPSG:2263 as the naming convention alone
+      would suggest (2263 is the pre-2011 NAD83 realization; 6539 is its
+      modern replacement, cm-level apart). 4 bands uint8, 5000x5000 px at
+      0.5 ft, reprojects cleanly to EPSG:6347 (tested end-to-end: tile 000260
+      -> 5057x5057 px at 0.1524 m, bounds consistent with the run's domain
+      origin/extent). ports/us_ny/stage_sources.py reads each file's own embedded
+      CRS rather than assuming either code, so this is a documentation
+      correction, not a script bug -- dtm2017/dsm2017 below are NOT yet
+      pixel-verified the same way and may turn out to be 6539 too.
+      NYC's OWN orthoimagery program also offers a colour-infrared variant
+      (see PORTING.md discussion) but is distributed only as WMTS in
+      Web Mercator, not as downloadable native-CRS files -- NYSDOP was used
+      instead for exactly that reason.
+
+  # ------------------------------------------------- cadastre (fused) -------
+  nyc_cadastre:
+    role: cadastre
+    licence: [us-municipal-open-data, ODbL-1.0]
+    licence_holder:
+      us-municipal-open-data: NYC Department of City Planning
+      ODbL-1.0: OpenStreetMap contributors (New Jersey)
+    kind: single_file               # region_index would also work; the
+                                     # staged output is one file either way
+    index_url: "{workdir}/staging/indices/cadastre_us_ny.geojson"
+    index_crs: EPSG:6347
+    url_field: staged_path
+    date_field: acquired
+    format: gpkg_zip
+    layers:
+      landuse:
+        name: landuse                 # written by the staging script
+        key_field: LandUse            # MapPLUTO 'LandUse', 2-char code "01".."11"
+        label_field: LandUse_label
+      buildings:
+        name: buildings                # written by the staging script
+        id_field: bin                  # NYC Building Footprints BIN (unique)
+        function_field: feature_code   # 2100=building, 5110=garage, etc. -- see mapping
+        # NO label_field: clip_layer() collects every *_field value into one
+        # column list, so pointing label_field at feature_code too yields a
+        # duplicated column and pyogrio refuses to write the layer.
+        # bonus over the NI setup: a real per-building height AND
+        # construction year, from ONE join key (BIN/BBL), no LoD2-style
+        # externRef parsing needed. Not yet wired into buildings3d (would
+        # need a `role: buildings3d` entry sharing the same staged file);
+        # left for a follow-up since palmgeo prefers DSM-measured height
+        # anyway (README §9) and dsm2017 already covers all of Manhattan.
+    notes: >
+      FUSED by ports/us_ny/stage_sources.py from two separate NYC Open Data
+      datasets -- there is no single ALKIS-equivalent here:
+        landuse:    "Primary Land Use Tax Lot Output - Map (MapPLUTO)". The
+                    obvious URL (data.cityofnewyork.us/api/geospatial/
+                    f888-ni5f?method=export -- what an earlier draft of this
+                    file and ports/us_ny/stage_sources.py used) turned out to be a
+                    dead end, VERIFIED 2026-09-04: that Socrata dataset id is
+                    an "href"-type view (a redirect page with 2 PDF
+                    attachments, no hosted data) on BOTH the NYC and NY State
+                    mirrors. The real, live source is NYC DCP's own ArcGIS
+                    FeatureServer,
+                    services5.arcgis.com/GfwWNkhOj9bNBqoJ/arcgis/rest/services/MAPPLUTO/FeatureServer/0,
+                    queried with `where=Borough='MN'` and paginated at its
+                    maxRecordCount of 2000 -- VERIFIED end-to-end 2026-09-04,
+                    42 023 real Manhattan tax lots fetched (fetch_mappluto_
+                    manhattan() in ports/us_ny/stage_sources.py). Field LandUse
+                    VERIFIED against the NYC DCP PLUTO Data Dictionary (May
+                    2026, 26v1): 01 one/two-family, 02 multi-family walk-up,
+                    03 multi-family elevator, 04 mixed res/comm, 05
+                    commercial/office, 06 industrial/manufacturing, 07
+                    transportation/utility, 08 public facility/institution,
+                    09 open space/recreation, 10 parking, 11 vacant land.
+        buildings:  "Building Footprints" (data.cityofnewyork.us, dataset
+                    5zhs-2jue), fields VERIFIED via the Socrata column API
+                    2026-09-03: bin, doitt_id, base_bbl, construction_year,
+                    feature_code, geom_source, ground_elevation, height_roof,
+                    mappluto_bbl, last_status_type. Joinable to MapPLUTO via
+                    mappluto_bbl <-> MapPLUTO's own BBL, not currently used.
+        water (into the SAME landuse sublayer, tagged LandUse="WTR"): MapPLUTO
+                    has no polygon at all for the Hudson/East/Harlem rivers
+                    (not tax lots), fixed 2026-09-04 by fusing in OSM
+                    `natural=water` (inland lakes/ponds, live Overpass query)
+                    and the osmdata.openstreetmap.de coastline-derived water
+                    polygons (the rivers themselves -- not tagged
+                    `natural=water` in OSM, VERIFIED by a targeted name
+                    search that found none at NYC scale). Both real,
+                    verified, 392 polygons / 52.7 km2 over this run's AOI --
+                    see ports/us_ny/stage_sources.py::build_water_layer() and
+                    mapping_us_ny.yml's "WTR" rule. The coastline product
+                    (904 MB, global, ODbL) is cached ONCE, region-agnostic,
+                    under repository/.cache/global/ -- see
+                    sources_global.yml's water section for the general
+                    recipe, meant to be reused for any future port.
+      Bridges (ALKIS bauwerke_f equivalent): NOT wired. No single obvious
+      NYC open dataset was identified for bridge deck polygons in the time
+      available; the `structures` sublayer is simply omitted, which
+      steps/vectors.py::fetch_cadastre handles as an empty/missing role
+      (logs a warning, produces no bridges) rather than failing.
+
+# ------------------------------------------------------------------ not wired
+# buildings3d: Building Footprints already carries height_roof per building
+#   (see nyc_cadastre.buildings notes) -- a real, joinless improvement over
+#   the NI LoD2 externRef join. Not activated because dsm2017 gives palmgeo
+#   per-pixel measured height everywhere in this run's AOI already (README
+#   §9: DSM-measured height is preferred over any buildings3d fallback), so
+#   the fallback path is never exercised. Activate by adding a
+#   `role: buildings3d` source pointing at the same staged buildings file
+#   with `height: height_roof` if a future AOI needs the fallback.
+# topo (street_type): NOT wired for this port. NYC LION / Street Centerline
+#   (CSCL) exist and carry a roadway-type classification, but README/
+#   PORTING.md both note PALM's street_type enum IS the OSM `highway`
+#   taxonomy and call OpenStreetMap "an equally valid (arguably better
+#   matching) drop-in source" for exactly this role -- OSM's Manhattan
+#   coverage is excellent and sidesteps writing a LION-vocabulary mapping
+#   from scratch. Left for a follow-up since street_type/street_crossings
+#   are optional (used only for parameterised chemistry and the multi-agent
+#   model) and this run has no chemistry domain.

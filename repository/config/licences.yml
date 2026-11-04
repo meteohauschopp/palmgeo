@@ -1,0 +1,203 @@
+# ==============================================================================
+# Licence registry
+# ==============================================================================
+# Every source in every `sources_*.yml` names one or more licences from this
+# file by id. The `sources` stage resolves them, prints them beside the data
+# they govern, and combines them into the licence position of the driver as a
+# whole -- which is the strictest combination of everything that went into it.
+#
+# WHY THIS IS A SEPARATE FILE
+#   Six Lower Saxony products share one licence. Written out per source, that
+#   text is six copies that drift apart, and the sixth copy is the one that is
+#   wrong when someone finally reads it. Here it is written once.
+#
+# WHAT THIS FILE IS NOT
+#   It is not legal advice, and palmgeo is not in a position to give any. Each
+#   entry summarises terms that the licensor can change, and some of them are
+#   genuinely ambiguous at the edges. `url` is the authoritative text; when a
+#   driver is going to be published, read it. Where an entry has a known grey
+#   area, it says so in `caveat` instead of pretending there is none.
+#
+# THE OBLIGATION FLAGS
+#   Four booleans, chosen because they are the four questions that actually
+#   change what you may do with a finished driver:
+#
+#   attribution      A credit must travel with the driver and with anything
+#                    published from it. palmgeo writes it into the run's
+#                    docs/DATA-SOURCES.md; when a driver is passed on, put it
+#                    in the driver's `source` attribute as well.
+#   share_alike      A distributed derivative must carry the same licence.
+#                    This is infectious: one share-alike input makes the whole
+#                    driver share-alike, which is why the stage reports it
+#                    loudly rather than as a footnote.
+#   non_commercial   Use "primarily directed at commercial advantage or
+#                    monetary compensation" is not permitted. Publicly funded
+#                    research is the paradigm permitted case, not a grey area;
+#                    see the caveat on the entry that carries this flag.
+#   redistribution   The DATA may not be passed on freely, only results
+#     _restricted    derived from it. A driver is data, so this flag is the
+#                    one that stops you publishing the driver file itself.
+#
+# ADDING A LICENCE
+#   Add an entry here, then reference its id from the source. An id that no
+#   `sources_*.yml` mentions costs nothing; a source naming an id that is not
+#   here is an error the loader reports by name, so a typo cannot quietly
+#   become "no licence".
+# ==============================================================================
+
+version: 1
+
+licences:
+
+  # ------------------------------------------------------------ Germany ------
+  dl-de-by-2.0:
+    name: Datenlizenz Deutschland -- Namensnennung 2.0
+    spdx: null                   # not an SPDX-registered identifier
+    url: https://www.govdata.de/dl-de/by-2-0
+    attribution: "(C) {holder} {year} -- dl-de/by-2-0"
+    obligations:
+      attribution: true
+      share_alike: false
+      non_commercial: false
+      redistribution_restricted: false
+    summary: >
+      The standard licence of German open government data. Free use including
+      commercially, free redistribution and modification, on the single
+      condition that the source, the holder and the licence are named, and
+      that the notice is kept on any modification.
+
+  # --------------------------------------------------------- international --
+  CC-BY-4.0:
+    name: Creative Commons Attribution 4.0 International
+    spdx: CC-BY-4.0
+    url: https://creativecommons.org/licenses/by/4.0/
+    attribution: "(C) {holder} {year} -- CC BY 4.0"
+    obligations:
+      attribution: true
+      share_alike: false
+      non_commercial: false
+      redistribution_restricted: false
+    summary: >
+      Free use including commercially, free redistribution and modification,
+      provided the source is credited and changes are indicated.
+
+  CC-BY-NC-SA-4.0:
+    name: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International
+    spdx: CC-BY-NC-SA-4.0
+    url: https://creativecommons.org/licenses/by-nc-sa/4.0/
+    attribution: "(C) {holder} {year} -- CC BY-NC-SA 4.0"
+    obligations:
+      attribution: true
+      share_alike: true
+      non_commercial: true
+      redistribution_restricted: false
+    summary: >
+      Attribution, ShareAlike and NonCommercial together. The ShareAlike term
+      is the consequential one for a static driver: a driver distributed with
+      this data in it must itself carry this licence, and so must anything
+      built on that driver.
+    caveat: >
+      "NonCommercial" means use primarily directed at commercial advantage or
+      monetary compensation. Publicly funded research -- a compute-time
+      allocation, a paper, a thesis -- is the paradigm case the term is
+      written to permit, not a grey area. The genuine grey area is
+      redistributing the DATA ITSELF through a commercial or paywalled
+      channel, which is different from publishing results derived from it.
+      Where even that residual ambiguity is unwanted, the answer is to choose
+      a different source, not to reason around the clause.
+
+  ODbL-1.0:
+    name: Open Database License 1.0 (OpenStreetMap)
+    spdx: ODbL-1.0
+    url: https://opendatacommons.org/licenses/odbl/1-0/
+    attribution: "(C) OpenStreetMap contributors -- ODbL 1.0"
+    obligations:
+      attribution: true
+      share_alike: true
+      non_commercial: false
+      redistribution_restricted: false
+    summary: >
+      Free use including commercially, on two conditions: OpenStreetMap
+      contributors are credited, and a distributed database derived from it is
+      offered under ODbL as well.
+    caveat: >
+      Whether a PALM static driver counts as a "derivative database" or as a
+      "produced work" is the question that decides how far the share-alike
+      term reaches, and it is genuinely unsettled for this kind of artefact.
+      palmgeo takes the conservative position and reports ODbL as share-alike
+      wherever it appears.
+
+  # ---------------------------------------------------------- programmes -----
+  copernicus:
+    name: Copernicus data licence (ESA / European Union)
+    spdx: null
+    url: https://dataspace.copernicus.eu/terms-and-conditions
+    attribution: "Contains modified Copernicus data {year}"
+    obligations:
+      attribution: true
+      share_alike: false
+      non_commercial: false
+      redistribution_restricted: false
+    summary: >
+      Free, full and open access to Copernicus data including for commercial
+      use and redistribution, requiring only that Copernicus is credited and
+      that modification is indicated where the data has been modified.
+    caveat: >
+      Covers both Sentinel imagery and the Copernicus DEM, whose terms are
+      published separately and have been revised before. Re-check the current
+      text at the URL before publishing a driver built from either.
+
+  us-public-domain:
+    name: United States federal government work -- public domain
+    spdx: null
+    url: https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits
+    attribution: "{holder} ({year}), public domain"
+    obligations:
+      attribution: false
+      share_alike: false
+      non_commercial: false
+      redistribution_restricted: false
+    summary: >
+      Works produced by US federal agencies -- USGS 3DEP elevation, USDA-FSA
+      NAIP imagery -- carry no copyright and impose no conditions. Crediting
+      the agency is customary and good practice, not an obligation.
+
+  us-municipal-open-data:
+    name: Municipal / state open data, no formal licence instrument
+    spdx: null
+    url: https://www.nyc.gov/site/doitt/initiatives/open-data.page
+    attribution: "{holder} ({year})"
+    obligations:
+      attribution: false
+      share_alike: false
+      non_commercial: false
+      redistribution_restricted: false
+    summary: >
+      Published openly and without registration by a city or state agency,
+      but under terms of use rather than a named licence instrument.
+    caveat: >
+      The absence of a licence is not the same as a permissive licence. These
+      datasets carry no dl-de/by-2-0 or CC equivalent, so what is permitted
+      rests on each agency's terms of use, which differ between agencies and
+      change without notice. Cite the source agency, and read the terms
+      before redistributing the data itself.
+
+  unknown:
+    name: Not established
+    spdx: null
+    url: null
+    attribution: null
+    obligations:
+      attribution: true
+      share_alike: false
+      non_commercial: false
+      redistribution_restricted: true
+    summary: >
+      No licence has been established for this source.
+    caveat: >
+      Deliberately modelled as the most restrictive position available:
+      attribution required and redistribution restricted. An unexamined
+      source is not a free source, and a driver built from one cannot be
+      published until somebody has looked. This is the value a source gets
+      when its `licence:` field is missing, so the gap is visible in the
+      report rather than silently absent.

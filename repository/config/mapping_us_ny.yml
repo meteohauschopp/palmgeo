@@ -1,0 +1,365 @@
+# ==============================================================================
+# Semantic mapping: MapPLUTO / NYC Building Footprints -> PALM surface types
+# ==============================================================================
+# Companion to sources_us_ny.yml, a CASE-STUDY port built for a run over
+# Manhattan. Land-use codes verified against the real NYC DCP PLUTO Data
+# Dictionary (May 2026, 26v1) and the real Building Footprints column list
+# (Socrata column API, 2026-09-03) -- see sources_us_ny.yml's notes for the
+# exact verification trail. Run `palmgeo report` over a new area before
+# trusting it there: that is what proves every value MapPLUTO carries is
+# covered (PORTING.md "empirical loop"). Coarser than mapping_ni.yml by
+# necessity: MapPLUTO's LandUse has 11 flat categories with no sub-codes, so
+# there is no longest-prefix hierarchy to exploit the way ALKIS `tn` allows.
+#
+# CORE IDEA -- unchanged from mapping_ni.yml: land USE x land COVER. See its
+# header comment for the full mechanism (NDVI/nDSM-driven high_ndvi/low_ndvi/
+# high_veg branching, phenology, precedence). Only the vocabulary differs.
+#
+# WATER -- FIXED 2026-09-04, not covered by MapPLUTO itself. MapPLUTO only
+# carries tax lots, and the Hudson/East/Harlem river surfaces around
+# Manhattan are not tax lots -- no LandUse code to key on, a coverage gap
+# rather than an unmapped-vocabulary one (`palmgeo report` cannot catch it:
+# there is no polygon there to report on). Fixed not by an `extra_inputs`
+# override but by ADDING polygons at the source: ports/us_ny/stage_sources.py's
+# build_water_layer() fuses OSM `natural=water` (inland lakes/ponds/
+# reservoirs) and the osmdata.openstreetmap.de coastline-derived water
+# polygons (the tidal rivers, which are not tagged `natural=water` in OSM at
+# all) into the SAME `landuse` cadastre sublayer MapPLUTO populates, tagged
+# with the synthetic code "WTR" below -- see that function's docstring for
+# what was actually run and verified (392 polygons, 52.7 km2 over this run's
+# AOI). This is the general "global fallback" pattern documented in
+# repository/config/sources_global.yml's water section; reuse it for any
+# future region whose primary cadastre source has the same gap.
+# ==============================================================================
+
+region: US-NY
+
+# ------------------------------------------------------------------ defaults --
+fallback:
+  high_ndvi: vegetation:short_grass
+  low_ndvi:  pavement:asphalt_concrete_mix
+  high_veg:  vegetation:deciduous_broadleaf_trees
+# Fallback fires on MapPLUTO records with a blank/unrecognised LandUse code,
+# which in practice is dominated by street-bed and right-of-way tax lots --
+# asphalt is the honest default cover for those, unlike NI's own fallback
+# (vegetation:bare_soil for low_ndvi), which assumes rural/undeveloped land.
+
+default_high_vegetation: vegetation:deciduous_broadleaf_trees
+
+# What a tree detected by `vegetation.trees.mode: rentz` becomes in palm_csd
+# (an index into palm_csd/data/tree_defaults.csv, plus a species label). These
+# are the Central European values of mapping_ni.yml, NOT chosen for this
+# region -- pick representative entries from tree_defaults.csv before
+# relying on single trees here.
+single_trees:
+  conifer:   {tree_type: 1,  species: Abies}    # shape 3 (cone)
+  broadleaf: {tree_type: 33, species: Fagus}    # shape 1 (sphere)
+# ASSUMPTION: broadleaf deciduous is the most common tall vegetation on
+# Manhattan street trees and in Central Park (predominantly London plane,
+# oak, honey locust -- all broadleaf); unverified against a real species
+# inventory, exactly like the NI default.
+
+phenology:
+  evergreen: vegetation:evergreen_needleleaf_trees
+  deciduous: vegetation:deciduous_broadleaf_trees
+  mixed:     vegetation:mixed_forest_woodland
+
+# ----------------------------------------------- MapPLUTO LandUse (11 classes)
+# key = MapPLUTO `LandUse`, a flat 2-character code, verified against the NYC
+# DCP PLUTO Data Dictionary (May 2026, 26v1). No sub-codes exist, so lookup is
+# exact match, not longest-prefix (the mechanism still supports prefix match,
+# it simply degenerates here since every key is already maximally specific).
+landuse:
+  # ---------------------------------------------------------------------------
+  # Added after `palmgeo report --what landuse` showed them falling through to
+  # the fallback. Together they are 0.64 ha of a 319 km2 area of interest, so
+  # this is not a correctness fix -- it is so that a future report listing an
+  # unmapped key means something. Each is anchored on the existing rule for the
+  # nearest thing, named in its comment.
+  # ---------------------------------------------------------------------------
+  "landuse:religious":            # grounds of a place of worship: forecourt
+    high_ndvi: vegetation:short_grass          # plus planting. The building
+    high_veg:  vegetation:deciduous_broadleaf_trees   # itself arrives from the
+    low_ndvi:  pavement:asphalt_concrete_mix   # footprint layer, not from here.
+
+  "leisure:sports_hall":          # as leisure:sports_centre -- indoor venue,
+    high_ndvi: vegetation:short_grass          # so the parcel is building plus
+    low_ndvi:  pavement:asphalt_concrete_mix   # apron
+
+  "leisure:fitness_centre":       # as leisure:sports_centre, same reasoning
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+
+  "leisure:fitness_station":      # as leisure:playground -- outdoor equipment
+    high_ndvi: vegetation:short_grass          # standing on a park surface
+    low_ndvi:  pavement:asphalt_concrete_mix
+
+  "leisure:bleachers":            # spectator stands: a concrete structure, not
+    high_ndvi: vegetation:short_grass          # the asphalt of a car park
+    low_ndvi:  pavement:concrete
+
+  "leisure:outdoor_seating":      # cafe terrace, typically laid rather than
+    high_ndvi: vegetation:short_grass          # poured
+    low_ndvi:  pavement:paving_stones
+
+  "leisure:fishing":              # as leisure:golf_course -- an angling spot is
+    high_ndvi: vegetation:short_grass          # the BANK. Mapping it to water
+    low_ndvi:  vegetation:bare_soil            # would invent open water where
+                                               # the water layer maps none.
+
+  "leisure:water_park":           # pool decks, NOT water: the pools themselves
+    high_ndvi: vegetation:short_grass          # come from the water layer, and
+    low_ndvi:  pavement:concrete               # typing the whole parcel as water
+                                               # would flood 0.18 ha of decking.
+
+  "01":                           # One & Two Family Buildings
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:paving_stones      # driveways, front walks
+  "02":                           # Multi-Family Walk-Up Buildings
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "03":                           # Multi-Family Elevator Buildings
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete           # dominant Manhattan apartment-block type
+  "04":                           # Mixed Residential & Commercial Buildings
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "05":                           # Commercial & Office Buildings
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "06":                           # Industrial & Manufacturing
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "07":                           # Transportation & Utility
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "08":                           # Public Facilities & Institutions
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "09":                           # Open Space & Outdoor Recreation
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:deciduous_broadleaf_trees   # Central Park canopy etc.
+    high_veg_fixed: false          # let phenology refine it where two epochs exist
+    # short_grass, NOT asphalt. The land use already says "park": the
+    # non-green fraction inside a park is overwhelmingly dormant/dry lawn and
+    # unpaved path, not road. Measured consequence of the asphalt version on
+    # the real Central Park parcel (3.39 km2, the largest LandUse=09 polygon
+    # in the AOI): 48.7 % of the park came out asphalt_concrete_mix and only
+    # 35.6 % vegetation. The park's genuine roads (the transverses, the park
+    # drive) are narrow enough that a 16 m majority vote drops them anyway,
+    # so calling them grass is the smaller error by far.
+    low_ndvi:  vegetation:short_grass
+  "10":                           # Parking Facilities
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "11":                           # Vacant Land
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+
+  # ---------------------------------------------------------------------
+  # NEW JERSEY, from OpenStreetMap. MapPLUTO is NYC tax lots only, so the
+  # west bank of the Hudson (Jersey City, Hoboken, the Palisades) has no
+  # MapPLUTO code at all -- it came out unclassified until the domain was
+  # widened to include it. Keys are `<osm-key>:<value>` composites built
+  # by stage_cadastre(); the rules themselves are copied verbatim from
+  # repository/config/mapping_global.yml, which is where they are
+  # maintained for every region.
+  # ---------------------------------------------------------------------
+  "landuse:residential":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:asphalt_concrete_mix
+  "landuse:commercial":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:concrete
+  "landuse:retail":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:concrete
+  "landuse:industrial":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:asphalt_concrete_mix
+  "landuse:railway":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi: pavement:gravel
+  "landuse:construction":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi: vegetation:bare_soil
+  "landuse:brownfield":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi: vegetation:bare_soil
+  "landuse:military":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:asphalt_concrete_mix
+  "landuse:farmland":
+    high_ndvi: vegetation:crops_mixed_farming
+    low_ndvi: vegetation:bare_soil
+  "landuse:farmyard":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:gravel
+  "landuse:orchard":
+    high_ndvi: vegetation:deciduous_broadleaf_trees
+    high_veg: vegetation:deciduous_broadleaf_trees
+    high_veg_fixed: true
+    low_ndvi: vegetation:bare_soil
+  "landuse:vineyard":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:bare_soil
+  "landuse:meadow":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi: vegetation:bare_soil
+  "landuse:allotments":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:bare_soil
+  "landuse:forest":
+    high_ndvi: vegetation:short_grass
+    high_veg: vegetation:deciduous_broadleaf_trees
+    low_ndvi: vegetation:bare_soil
+  "landuse:cemetery":
+    high_ndvi: vegetation:short_grass
+    high_veg: vegetation:deciduous_broadleaf_trees
+    low_ndvi: pavement:paving_stones
+  "landuse:recreation_ground":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:asphalt_concrete_mix
+  "landuse:quarry":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi: vegetation:bare_soil
+  "natural:wood":
+    high_ndvi: vegetation:short_grass
+    high_veg: vegetation:deciduous_broadleaf_trees
+    low_ndvi: vegetation:bare_soil
+  "natural:scrub":
+    high_ndvi: vegetation:deciduous_shrubs
+    low_ndvi: vegetation:bare_soil
+  "natural:heath":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi: vegetation:bare_soil
+  "natural:grassland":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:bare_soil
+  "natural:wetland":
+    high_ndvi: vegetation:bogs_marshes
+    low_ndvi: vegetation:bogs_marshes
+  "natural:sand":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:desert
+  "natural:beach":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:bare_soil
+  "natural:bare_rock":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi: vegetation:bare_soil
+  "natural:desert":
+    high_ndvi: vegetation:semidesert
+    low_ndvi: vegetation:desert
+  "leisure:park":
+    high_ndvi: vegetation:short_grass
+    high_veg: vegetation:deciduous_broadleaf_trees
+    low_ndvi: pavement:asphalt_concrete_mix
+  "leisure:garden":
+    high_ndvi: vegetation:short_grass
+    high_veg: vegetation:deciduous_broadleaf_trees
+    low_ndvi: vegetation:bare_soil
+  "leisure:pitch":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:artificial_turf
+  "leisure:golf_course":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:bare_soil
+  "amenity:parking":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:asphalt_concrete_mix
+
+  # --- added 2026-09-07 after auditing the staged cadastre against this file.
+  # 29 codes present in the data had no rule and were falling through to
+  # `fallback` (low_ndvi -> asphalt). These are the ones with real area on the
+  # New Jersey side; the rest are below 0.5 ha each and the fallback is an
+  # honest answer for them. Water keys are deliberately NOT added here --
+  # build_water_layer() owns water typing and _nj_layers() now drops OSM's
+  # duplicate water tags, see ports/us_ny/stage_sources.py.
+  "landuse:grass":                # 58.8 ha in this domain; asphalt was wrong
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:short_grass
+  "leisure:sports_centre":        # 22.3 ha; mostly outdoor courts and fields
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:asphalt_concrete_mix
+  "leisure:stadium":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:asphalt_concrete_mix
+  "leisure:track":                # running tracks: synthetic surface
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:artificial_turf
+  "leisure:playground":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: pavement:asphalt_concrete_mix
+  "leisure:dog_park":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:bare_soil
+  "leisure:swimming_pool":        # open-air pools: standing water, not asphalt
+    water: water:pond
+  "leisure:marina":
+    water: water:river             # basins off the tidal Hudson
+  "landuse:animal_keeping":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:bare_soil
+  "landuse:plant_nursery":
+    high_ndvi: vegetation:crops_mixed_farming
+    low_ndvi: vegetation:bare_soil
+  "landuse:flowerbed":
+    high_ndvi: vegetation:short_grass
+    low_ndvi: vegetation:bare_soil
+  "natural:scree":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi: vegetation:bare_soil
+  "natural:shingle":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi: vegetation:bare_soil
+  "natural:shrubbery":
+    high_ndvi: vegetation:evergreen_shrubs
+    low_ndvi: vegetation:evergreen_shrubs
+
+  # Synthetic codes, NOT real MapPLUTO values -- see the WATER note above.
+  # `rule.water` being set means high_ndvi/low_ndvi are not required
+  # (config.py's Mapping loader accepts either). Split by OSM's `water=*`
+  # subtag: a first version mapped ALL water to `river`, which made Central
+  # Park's Lake and the Jacqueline Kennedy Onassis Reservoir rivers.
+  "WTR_RIV":                      # Hudson / East / Harlem, tidal, from the
+    water: water:river             # coastline-derived polygons
+  "WTR_LAKE":                     # OSM water=lake|reservoir|basin, and
+    water: water:lake              # untagged natural=water (inland standing)
+  "WTR_POND":                     # OSM water=pond -- Central Park's Pond,
+    water: water:pond              # Conservatory Water, The Pool
+
+# ------------------------------------------------------------- building_type --
+# WEAKER SIGNAL than mapping_ni.yml's by_gfk: NYC Building Footprints'
+# `feature_code` (wired as `function_field` in sources_us_ny.yml) encodes
+# STRUCTURE TYPE (building / garage / skybridge / tank / canopy...), not
+# residential-vs-office FUNCTION the way ALKIS `gfk` does. A real function
+# signal exists in MapPLUTO's own `BldgClass` field, joinable via
+# mappluto_bbl <-> BBL, but that join is not wired (see sources_us_ny.yml).
+# Until it is, `default: residential` carries almost all of Manhattan's
+# actual office/commercial towers too -- a known, real inaccuracy, not a
+# rounding error. Fix by wiring the BBL join and keying by_bldgclass instead.
+building_type:
+  default_age: "1951_2000"       # uniform, like NI -- see the note below
+  default: residential
+  by_gfk:                        # keyed on Building Footprints `feature_code`
+    "2100": residential           # ordinary building outline (the vast majority)
+    "2110": office                 # skybridge -- almost always connects office/institutional towers
+    "5110": office                 # garage
+  # UNLIKE NI: Building Footprints carries a REAL per-building
+  # `construction_year`. _building_type_code() (steps/vectors.py) has no
+  # per-building age path today -- default_age is applied uniformly exactly
+  # as in NI. Wiring real age brackets from construction_year would be a
+  # genuine, data-supported improvement over both region files, and needs a
+  # small code change (an `age_field` alongside `function_field`), not a
+  # mapping-file change alone. Left for a follow-up, flagged rather than
+  # silently left looking equivalent to the NI uniform-default situation
+  # (NI has no age data at all; this port has it and simply isn't using it yet).
+
+# --------------------------------------------------------------------- soil --
+soil:
+  constant: medium_fine
+# No NYC/NY soil texture layer was identified in the time available (the NI
+# equivalent, LBEG BUEK50, is itself only wired as a documented future
+# upgrade, not active). Manhattan's built fraction makes this a minor gap
+# compared to the water and building_type ones above.

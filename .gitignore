@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------------------
+# Projects, and everything derived from them.
+#
+# static_driver/<run>/ holds one project: its configuration, the palm_csd
+# inputs, the drivers, the plots and the intermediate data. It is ignored in
+# full, for two separate reasons.
+#
+#   The data is reproducible and enormous. One driver runs from a few hundred
+#   MB to several GB -- past GitHub's 100 MB per-file limit -- and the working
+#   directory beside it is 20 MB per km2 at 1 m, so a city is 50-100 GB.
+#
+#   The configuration is private. A run config names a site, an author, an
+#   institution and a study. Only what is generic enough to publish stays in
+#   repository/config: the region files, the template and the smoke test.
+#
+# Note that .gitignore does not untrack a file that is already tracked; use
+# `git rm --cached` for that.
+# ---------------------------------------------------------------------------
+static_driver/*
+!static_driver/README.md
+
+# ---------------------------------------------------------------------------
+# The example is the exception, and is versioned in full.
+#
+# It is the only project small enough to be: three nested domains over 9 km2
+# give a few MB of drivers in total, against 166 MB for the smallest of
+# the real runs. Committing it means somebody who clones this repository has a
+# working driver to open before running anything, and somebody who runs it has
+# something to compare their own result against -- which is what makes it a
+# test as well as an example.
+#
+# Its work/ directory stays out: 187 MB of intermediates that the run rebuilds.
+#
+# git needs the directory un-ignored before anything inside it can be, hence
+# the re-ignore on the second line.
+# ---------------------------------------------------------------------------
+!static_driver/example/
+static_driver/example/*
+!static_driver/example/config/
+!static_driver/example/docs/
+!static_driver/example/products/
+!static_driver/example/example_static
+!static_driver/example/example_static_N02
+!static_driver/example/example_static_N03
+
+repository/.cache/*
+!repository/.cache/README.md
+
+# ---------------------------------------------------------------------------
+out/
+out_*/
+work/
+work_*/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+.DS_Store
+*.swp

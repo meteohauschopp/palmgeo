@@ -1,0 +1,220 @@
+# ==============================================================================
+# Global fallback mapping: OpenStreetMap tags -> PALM surface types
+# ==============================================================================
+# Companion to sources_global.yml -- read that file's header first, in
+# particular why this cannot be loaded directly via `project.mapping` any
+# more than sources_global.yml can be loaded via `project.sources`: this is a
+# library to copy entries FROM into a new mapping_<region>.yml, not a
+# runnable region file (there is no `region:` this belongs to).
+#
+# UNLIKE sources_global.yml, this file genuinely IS region-agnostic content,
+# not just a recipe -- OSM's tagging vocabulary (`landuse=residential`,
+# `natural=wood`, ...) is the same everywhere in the world by construction,
+# so the KEYS below need no adaptation when porting. What still needs
+# per-region attention every time (say so before assuming otherwise):
+#   - Whether OSM coverage is good enough to trust at all over the new AOI
+#     (sources_global.yml's osm_landuse notes).
+#   - `classification.vegetation.ndvi_threshold` et al. -- unrelated to this
+#     file, but just as uncalibrated for a new region's NDVI source as this
+#     mapping is complete. Run `palmgeo calibrate`.
+#   - Whatever OSM tag VALUES actually occur over the new AOI that are not
+#     listed below -- run `palmgeo report` the same way any other port would.
+#     This file covers the common, worldwide-frequent OSM landuse/natural/
+#     leisure values; it is a starting point, deliberately not exhaustive.
+#
+# KEY SHAPE: OSM splits land classification across three independent tag
+# keys (`landuse=*`, `natural=*`, `leisure=*`), not palmgeo's single
+# longest-prefix string the way ALKIS `tn` or MapPLUTO `LandUse` are. The
+# staging step for a new region must therefore compose ONE key per feature,
+# e.g. "landuse:residential", "natural:wood", "leisure:park" (tag key + ":"
+# + tag value) -- see sources_global.yml's osm_landuse notes for where this
+# happens (stage_<region>_sources.py, not palmgeo core). The `landuse:`
+# section below is keyed on exactly that composite string.
+# ==============================================================================
+
+region: GLOBAL
+
+# ------------------------------------------------------------------ defaults --
+fallback:
+  high_ndvi: vegetation:short_grass
+  low_ndvi:  pavement:asphalt_concrete_mix
+  high_veg:  vegetation:deciduous_broadleaf_trees
+
+default_high_vegetation: vegetation:deciduous_broadleaf_trees
+
+# What a tree detected by `vegetation.trees.mode: rentz` becomes in palm_csd
+# (an index into palm_csd/data/tree_defaults.csv, plus a species label). These
+# are the Central European values of mapping_ni.yml, NOT chosen for this
+# region -- pick representative entries from tree_defaults.csv before
+# relying on single trees here.
+single_trees:
+  conifer:   {tree_type: 1,  species: Abies}    # shape 3 (cone)
+  broadleaf: {tree_type: 33, species: Fagus}    # shape 1 (sphere)
+# ASSUMPTION, same caveat as every other mapping_*.yml: unverified against a
+# real species inventory. Broadleaf deciduous is a reasonable global default
+# for temperate/subtropical latitudes; NOT a good default near the equator
+# or in arid climates -- Aswan (desert, ~24N) is exactly the case where this
+# default should probably be overridden to something like
+# `vegetation:evergreen_broadleaf_trees` or the region left without a
+# meaningful default_high_vegetation at all if tall vegetation barely occurs.
+
+phenology:
+  evergreen: vegetation:evergreen_needleleaf_trees
+  deciduous: vegetation:deciduous_broadleaf_trees
+  mixed:     vegetation:mixed_forest_woodland
+# Needs two Sentinel-2 epochs (leaf-on/leaf-off) the way sources_global.yml's
+# sentinel2_l2a entry can in principle provide -- not verified as a wired
+# ortho_epochs pair for any real run yet. In an arid/desert climate this
+# whole mechanism may simply not apply (little to no deciduous signal) --
+# check before enabling classification.phenology for a region like Aswan.
+
+# ------------------------------------------------------- OSM landuse/natural/leisure
+landuse:
+
+  # ---- landuse=* (settlement / built) ---------------------------------------
+  "landuse:residential":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "landuse:commercial":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "landuse:retail":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:concrete
+  "landuse:industrial":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "landuse:railway":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  pavement:gravel               # ballast
+  "landuse:construction":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi:  vegetation:bare_soil
+  "landuse:brownfield":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+  "landuse:military":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+
+  # ---- landuse=* (agriculture) -----------------------------------------------
+  "landuse:farmland":
+    high_ndvi: vegetation:crops_mixed_farming
+    low_ndvi:  vegetation:bare_soil
+  "landuse:farmyard":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:gravel
+  "landuse:orchard":
+    high_ndvi: vegetation:deciduous_broadleaf_trees
+    high_veg:  vegetation:deciduous_broadleaf_trees
+    high_veg_fixed: true                     # planted, not phenology-driven
+    low_ndvi:  vegetation:bare_soil
+  "landuse:vineyard":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+  "landuse:meadow":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+  "landuse:allotments":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+  "landuse:forest":                          # prefer natural:wood where both
+    high_ndvi: vegetation:short_grass        # exist (natural: is more common
+    high_veg:  vegetation:deciduous_broadleaf_trees   # in practice for real
+    low_ndvi:  vegetation:bare_soil                   # forest, this is the
+                                                        # landuse=* fallback
+
+  # ---- landuse=* (recreation / green) ----------------------------------------
+  "landuse:cemetery":
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:deciduous_broadleaf_trees
+    low_ndvi:  pavement:paving_stones
+  "landuse:recreation_ground":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+  "landuse:quarry":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi:  vegetation:bare_soil
+
+  # ---- natural=* --------------------------------------------------------------
+  "natural:wood":
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:deciduous_broadleaf_trees
+    low_ndvi:  vegetation:bare_soil
+  "natural:scrub":
+    high_ndvi: vegetation:deciduous_shrubs
+    low_ndvi:  vegetation:bare_soil
+  "natural:heath":
+    high_ndvi: vegetation:tall_grass
+    low_ndvi:  vegetation:bare_soil
+  "natural:grassland":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+  "natural:wetland":
+    high_ndvi: vegetation:bogs_marshes
+    low_ndvi:  vegetation:bogs_marshes
+  "natural:sand":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:desert             # dunes, arid AOIs
+  "natural:beach":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+  "natural:bare_rock":
+    high_ndvi: vegetation:bare_soil
+    low_ndvi:  vegetation:bare_soil
+  "natural:desert":                          # not a standard OSM value
+                                              # everywhere, but used regionally
+                                              # -- keep for arid AOIs like Aswan
+    high_ndvi: vegetation:semidesert
+    low_ndvi:  vegetation:desert
+
+  # ---- leisure=* ---------------------------------------------------------------
+  "leisure:park":
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:deciduous_broadleaf_trees
+    low_ndvi:  pavement:asphalt_concrete_mix     # paved paths
+  "leisure:garden":
+    high_ndvi: vegetation:short_grass
+    high_veg:  vegetation:deciduous_broadleaf_trees
+    low_ndvi:  vegetation:bare_soil
+  "leisure:pitch":                              # sports pitch, often turf
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:artificial_turf
+  "leisure:golf_course":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  vegetation:bare_soil
+
+  # ---- amenity=* (the one non-landuse/natural/leisure key worth carrying) -----
+  "amenity:parking":
+    high_ndvi: vegetation:short_grass
+    low_ndvi:  pavement:asphalt_concrete_mix
+
+  # ---- water, fused separately -- see sources_global.yml's water section -----
+  "WTR":                                     # same synthetic-code convention
+    water: water:river                       # as mapping_us_ny.yml's "WTR";
+                                              # pick water:lake/pond/ocean
+                                              # instead where that fits the
+                                              # AOI better (e.g. an inland
+                                              # reservoir vs. a sea coast)
+
+# --------------------------------------------------------------------- soil --
+soil:
+  constant: medium_fine
+# No global open soil texture product has been verified yet (SoilGrids
+# exists and is worldwide, but has not been checked -- a real candidate to add
+# before the next port, not assumed to work).
+
+# ------------------------------------------------------------- building_type --
+building_type:
+  default_age: "1951_2000"
+  default: residential
+  by_gfk: {}
+# Deliberately empty: OSM `building=*` values (house, apartments, commercial,
+# industrial, ...) map reasonably cleanly to PALM's residential/office split,
+# but have not been verified against real value_defaults.csv-style ground
+# truth the way mapping_us_ny.yml's feature_code table was against
+# real NYC Building Footprints data -- filling this in without that check
+# would be exactly the kind of unverified assertion this whole file's header
+# warns against. Populate `by_gfk` with OSM `building` tag values keyed the
+# same way (prefix match on the tag value directly, no composite key needed
+# since `building=*` has only one relevant key) before trusting it.

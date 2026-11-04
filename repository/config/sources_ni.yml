@@ -1,0 +1,274 @@
+# ==============================================================================
+# Source registry: Lower Saxony (Niedersachsen), LGLN OpenGeoData
+# ==============================================================================
+# This file is the ONLY place where region-specific download endpoints live.
+# The processing code addresses sources exclusively by their `role`, never by
+# name, so porting to another federal state means writing a new sources_*.yml
+# (plus a mapping_*.yml) -- no Python changes.
+#
+# Licence of all products below: DL-DE->BY-2.0 (attribution required).
+#   Attribution: "(C) LGLN <year> -- dl-de/by-2-0"
+#
+# Roles understood by the pipeline (see palmgeo/sources.py):
+#   dtm          digital terrain model            -> zt
+#   dsm          digital surface model            -> nDSM (with dtm)
+#   ortho        orthophoto with NIR band         -> NDVI / phenology
+#   buildings3d  building models with heights     -> buildings_2d
+#   cadastre     land use + footprints + bridges  -> surface types, buildings
+#   topo         topographic vector model         -> street_type
+#
+# Source kinds:
+#   tile_index   a GeoJSON FeatureCollection, one feature per tile, carrying
+#                the download URL(s) in its properties  -> streamed + cached
+#   region_index same, but one feature per administrative unit (whole file)
+#   single_file  one statewide file
+# ==============================================================================
+
+region: NI
+crs: EPSG:25832                 # native CRS of every product listed below
+attribution: "(C) LGLN {year} -- dl-de/by-2-0"
+
+# ---------------------------------------------------------------------------
+# Which source fills each role, unless the run configuration overrides it.
+#
+# These names used to be hard-coded in palmgeo/config.py -- Lower Saxony's
+# product names, in code that claims to know no product names. They belong
+# here, where a region declares its own defaults. A role with exactly one
+# source needs no entry; a role with several does, because otherwise the
+# choice would be made by dictionary order.
+# ---------------------------------------------------------------------------
+defaults:
+  dtm: dgm1
+  dsm: dom1
+  ortho: dop20
+  buildings3d: lod2
+  cadastre: alkis
+  topo: bdlm
+
+sources:
+
+  # ---------------------------------------------------------------- terrain --
+  dgm1:
+    role: dtm
+    licence: dl-de-by-2.0
+    licence_holder: LGLN
+    kind: tile_index
+    index_url: https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/dgm1/lgln-opengeodata-dgm1.geojson
+    index_crs: EPSG:25832
+    url_field: dgm1              # property holding the COG url
+    date_field: Aktualitaet
+    tile_field: tile_id
+    tile_size: 1000              # m
+    resolution: 1.0              # m
+    nodata: -9999.0
+    format: cog
+    vertical_crs: EPSG:7837      # DHHN2016 / NHN
+    notes: >
+      Float32 COG, LZW, pixel centre on 0.5 m positions. Derived from ALS
+      point clouds (>=4 pts/m2) by Delaunay triangulation.
+
+  # ------------------------------------------------- surface model (LiDAR) --
+  dom1:
+    role: dsm
+    licence: dl-de-by-2.0
+    licence_holder: LGLN
+    kind: tile_index
+    index_url: https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/dom1/lgln-opengeodata-dom1.geojson
+    index_crs: EPSG:25832
+    url_field: dom1
+    date_field: Aktualitaet
+    tile_field: tile_id
+    tile_size: 1000
+    resolution: 1.0
+    nodata: -9999.0
+    format: cog
+    # dgm1 and dom1 share tile_id AND acquisition date for 100 % of the 49708
+    # statewide tiles (verified). Pairing them by date yields a temporally
+    # consistent nDSM -- this is why dom1 is the default DSM, not bdom20.
+    pair_with: dgm1
+    pair_on: [tile_field, date_field]
+
+  # ----------------------------------- surface model (image based, newer) ----
+  bdom20:
+    role: dsm
+    licence: dl-de-by-2.0
+    licence_holder: LGLN
+    kind: tile_index
+    index_url: https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/bdom20/lgln-opengeodata-bdom20.geojson
+    index_crs: EPSG:25832
+    url_field: bdom
+    date_field: Aktualitaet
+    tile_field: tile_id
+    tile_size: 1000
+    resolution: 0.2
+    nodata: .nan
+    format: cog
+    notes: >
+      2021-2026, 20 cm, image matching from the DOP flights. Newer and finer
+      than dom1 but NOT date-paired with dgm1, so nDSM = bdom20 - dgm1 mixes
+      epochs. Preferable when buildings changed after the last ALS campaign.
+
+  # ------------------------------------------------------------ orthophoto --
+  dop20:
+    role: ortho
+    # 8-bit imagery. Stated rather than left to the default, so that the
+    # value is a claim somebody checked.
+    value_max: 255
+    licence: dl-de-by-2.0
+    licence_holder: LGLN
+    kind: tile_index
+    index_url: https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/dop20/lgln-opengeodata-dop20.geojson
+    index_crs: EPSG:25832
+    url_field: rgbi              # 4 bands: R,G,B,NIR -- required for NDVI
+    url_field_fallback: rgb      # 3 bands, no NIR
+    date_field: Aktualitaet
+    tile_field: tile_id
+    tile_size: 2000              # NOTE: 2 km, i.e. 4 work tiles per ortho tile
+    resolution: 0.2
+    format: cog
+    bands: {red: 1, green: 2, blue: 3, nir: 4}
+    notes: >
+      26763 unique tiles, 93952 features -> on average 3.5 epochs per tile,
+      2012-2026. Month histogram is dominated by March (29051) and April
+      (16096), i.e. LEAF-OFF. Epoch selection therefore must weight season,
+      not only recency (see `ortho_epochs` in the run config).
+
+  # -------------------------------------------- 3D building models (LoD2) ---
+  lod2:
+    role: buildings3d
+    licence: dl-de-by-2.0
+    licence_holder: LGLN
+    kind: tile_index
+    index_url: https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/lod2/lgln-opengeodata-lod2.geojson
+    index_crs: EPSG:4326         # index geometries are WGS84 here
+    url_field: shp               # zipped ESRI Shapefile (3D multipatch faces)
+    date_field: Aktualitaet
+    tile_field: null             # the `tile_id` property is malformed
+                                 # ("25985897" instead of "325985897");
+                                 # the tile key is parsed from the file name.
+    tile_from_filename: 'LoD2_(?P<zone>\d{2})_(?P<east>\d{3})_(?P<north>\d{4})_'
+    tile_size: 1000
+    format: shapefile_zip
+    fields:
+      building_key: gml_id       # one building = several rows (roof/wall faces)
+      extern_ref: externRef      # "...#_9100$$$DENIAL870000ok0W"
+      extern_ref_split: '$$$'    # take the part after this -> ALKIS objid
+      # A valid ALKIS reference starts with the NI namespace. Where the
+      # reference is missing, the LoD2 id differs from the ALKIS one only by
+      # its namespace prefix (DENILD... vs DENIAL...), so rewrite it.
+      cadastre_id_prefix: DENI
+      id_rewrite: {pattern: '^DENI[A-Z]{2}', repl: DENIAL}
+      height: measHeight         # building height above ground [m]
+      roof_area: DachFlaech      # area of the roof face, for area weighting
+      ground_height: AbsHoehe    # absolute ground level [m NHN]
+      ridge_height: Firsthoehe
+      eaves_height: Traufhoehe
+      function: function         # "31001_2000" -> ALKIS gfk after "_"
+      function_split: '_'
+      roof_type: roofType
+    notes: >
+      Geometry is MULTIPOLYGON Z of individual roof/wall faces, so it is NOT
+      used as a footprint. Only the per-building attributes are joined onto the
+      clean 2D ALKIS footprints. Its date is the model's publication: LoD2
+      dated 2024 still lacks buildings the 2016 laser scan its geometry rests
+      on did not see.
+
+  # ------------------------------------------------- ALKIS vector (per LK) ---
+  alkis:
+    role: cadastre
+    licence: dl-de-by-2.0
+    licence_holder: LGLN
+    kind: region_index
+    index_url: https://arcgis-geojson.s3.eu-de.cloud-object-storage.appdomain.cloud/alkis-vektor/lgln-opengeodata-alkis-vektor.geojson
+    index_crs: EPSG:4326
+    url_field: zip               # GeoPackage inside a zip, 19-330 MB per unit
+    date_field: aktualitaet-verwaltungseinheiten
+    format: gpkg_zip
+    layers:
+      landuse:
+        name: nutzung
+        key_field: tn            # "43001 VEG 1020"
+        label_field: tn__bez
+      buildings:
+        name: gebaeude
+        id_field: objid          # "DENIAL2200008wyD"
+        function_field: gfk      # "1000" = Wohngebaeude
+        label_field: gfk__bez
+      structures:
+        name: bauwerke_f
+        id_field: objid
+        type_field: bwf
+        label_field: bwf__bez
+        bridge_values: ["1800"]  # AX_Bauwerk... Bruecke
+    notes: >
+      45 administrative units (Landkreise + kreisfreie Staedte). Only the units
+      intersecting the AOI are downloaded, clipped and then deleted.
+
+  # ------------------------------------------- Basis-DLM (roads, optional) ---
+  bdlm:
+    role: topo
+    licence: dl-de-by-2.0
+    licence_holder: LGLN
+    kind: single_file
+    url: https://single-datasets.s3.eu-de.cloud-object-storage.appdomain.cloud/bdlm/nba_bkg_bdlm_ni_ohne_HB.zip
+    format: shapefile_zip
+    size_hint: 536429856         # ~536 MB, downloaded once, clipped, deleted
+    # Field names verified against the shipped ver01_l.dbf (784 664 records):
+    # the delivery uses UPPER CASE, unlike the AAA specification. Field lookup
+    # is case-insensitive anyway, so either spelling works.
+    layers:
+      roads:
+        name: ver01_l            # Strassenachsen / Fahrbahnachsen
+        class_field: WDM         # Widmung
+        name_field: BEZ
+        lanes_field: FSZ
+        width_field: BRF         # carriageway width [m]; -9998 means unknown
+      rails:
+        name: ver03_l
+    notes: >
+      Optional; only needed for `street_type` / `street_crossings`, which PALM
+      uses for parameterised chemistry emissions and the multi-agent model.
+      PALM's street_type enum is the OSM `highway` taxonomy, so OpenStreetMap
+      is an equally valid (arguably better matching) drop-in source -- see
+      PORTING.md.
+
+  # ------------------------------------------ land cover, BKG (optional) -----
+  # LBM-DE carries a percentage of sealing and of vegetation cover per object,
+  # which sounds like exactly the prior the vegetation mask would want.
+  #
+  # It is DISABLED by default, and the reason is its minimum mapping unit of
+  # 1 hectare. The vegetation this pipeline misses is sub-hectare by nature --
+  # a street tree over a paved square, a lawn strip inside a residential block,
+  # the shaded half of a crown. A 1 ha polygon cannot resolve any of those, and
+  # for the coarse context that it *can* resolve, ALKIS is already both finer
+  # and more current. Enable it when porting to a region without a detailed
+  # cadastral land-use layer, where it becomes the best available `cadastre`
+  # substitute.
+  lbm_de:
+    role: cadastre
+    licence: CC-BY-4.0
+    licence_holder: GeoBasis-DE / BKG
+    kind: single_file
+    enabled: false
+    url: https://daten.gdz.bkg.bund.de/produkte/dlm/lbm-de_2021/aktuell/lbm-de2021.utm32s.gpkg.zip
+    format: gpkg_zip
+    size_hint: 2100000000       # ~2.1 GB, whole of Germany
+    licence_notes: CC-BY-4.0          # NOT dl-de/by-2-0 like the LGLN products
+    attribution: "(C) GeoBasis-DE / BKG 2021"
+    notes: >
+      CORINE nomenclature, minimum mapping unit 1 ha, nationwide. Attribute
+      names have to be filled in from the product documentation before use.
+
+  # --------------------------------------------------- building footprints ---
+  # Fallback only: the ALKIS `gebaeude` layer above is preferred because it
+  # carries the building function. Kept here because some states publish
+  # footprints but no full ALKIS extract.
+  hausumringe:
+    role: cadastre
+    licence: dl-de-by-2.0
+    licence_holder: LGLN
+    kind: single_file
+    enabled: false
+    url: https://hausumringe-nie.s3.eu-de.cloud-object-storage.appdomain.cloud/gebaeude-ni.zip
+    format: shapefile_zip
+    size_hint: 687549686

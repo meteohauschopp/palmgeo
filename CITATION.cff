@@ -1,0 +1,42 @@
+# Read by GitHub ("Cite this repository") and by Zenodo when a release is archived.
+# After the first Zenodo release, add the concept DOI under `doi:` (see the
+# commented line below); that needs no new release.
+cff-version: 1.2.0
+message: "If you use palmgeo in your work, please cite it using these metadata."
+type: software
+title: "palmgeo"
+abstract: >-
+  palmgeo turns publicly available open geodata -- national, regional or
+  municipal -- into a complete, verified static driver for the PALM model
+  system: the input rasters and the configuration for PALM's palm_csd, for any
+  number of nested domains. A staged, resumable pipeline that records the data
+  sources, their licences and their age.
+authors:
+  - family-names: "Hauschopp"
+    given-names: "Jens"
+    orcid: "https://orcid.org/0009-0002-3856-0305"
+    affiliation: "Institute of Meteorology and Climatology, Leibniz University Hannover"
+version: "1.2.0"
+# doi: "10.5281/zenodo.XXXXXXX"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/meteohauschopp/palmgeo"
+references:
+  - type: thesis
+    thesis-type: "Bachelor's thesis"
+    title: "Generierung von dreidimensionalen Einzelbaumrepräsentationen basierend auf Fernerkundungsdaten"
+    authors:
+      - family-names: "Rentz"
+        given-names: "Joana-Pauline"
+    year: 2026
+    institution:
+      name: "Institute of Meteorology and Climatology, Leibniz University Hannover"
+    languages:
+      - de
+    notes: "Single-tree detection, greenness criterion and canopy height model are ported from its scripts."
+keywords:
+  - PALM
+  - static driver
+  - palm_csd
+  - large-eddy simulation
+  - urban climate
+  - open geodata

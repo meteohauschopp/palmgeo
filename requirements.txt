@@ -1,0 +1,25 @@
+# palmgeo -- Python >= 3.10.
+#
+# Tested with the versions in brackets. palm_csd needs the same stack, so
+# installing palm_csd first and adding these on top is the least painful route;
+# a mismatched GDAL/PROJ between the two is the single most common setup
+# failure (see "Troubleshooting" in README.md).
+geopandas>=1.0           # [1.0.1]
+rasterio>=1.3            # [1.3.11]
+shapely>=2.0             # [2.1.2]
+pyproj>=3.6              # [3.6.1]
+numpy>=1.24              # [1.26.4]
+pandas>=2.0              # [2.3.3]
+scipy>=1.10              # [1.16.3]
+PyYAML>=6.0              # [6.0.2]
+netCDF4>=1.6             # [1.7.2]  tools/verify_driver.py reads the finished driver
+# only for vegetation.trees.mode: rentz (single-tree segmentation)
+scikit-image>=0.22       # [0.26.0]
+
+# ---------------------------------------------------------------------------
+# Only for the region staging scripts under repository/ports/. The pipeline
+# itself downloads through urllib and needs no third-party HTTP client, so this
+# is separate: `pip install -e .[ports]` installs it, and a run that never
+# stages a region never needs it.
+# ---------------------------------------------------------------------------
+# requests>=2.28
