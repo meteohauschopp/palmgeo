@@ -1,5 +1,7 @@
 # palmgeo — a PALM static driver from open geodata
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23973676.svg)](https://doi.org/10.5281/zenodo.23973676)
+
 palmgeo turns publicly available open geodata — national, regional or
 municipal — into a complete, verified
 [PALM](https://palm.muk.uni-hannover.de/) static driver: the input rasters and
@@ -1570,8 +1572,11 @@ a test instead of quietly shipping.
 
 If you use palmgeo, or a driver built with it, in your work, please cite it.
 [`CITATION.cff`](CITATION.cff) holds the reference; GitHub shows it under
-"Cite this repository". Every release is archived on Zenodo: cite the DOI of the
-version you used, so a reader can retrieve exactly that code.
+"Cite this repository". Every release is archived on Zenodo. The concept DOI
+[10.5281/zenodo.23973676](https://doi.org/10.5281/zenodo.23973676) always
+resolves to the newest version; in a publication, cite the DOI of the version
+you used, so a reader can retrieve exactly that code — for v1.2.0 that is
+[10.5281/zenodo.23973677](https://doi.org/10.5281/zenodo.23973677).
 
 ### Licence
 

@@ -1,6 +1,5 @@
 # Read by GitHub ("Cite this repository") and by Zenodo when a release is archived.
-# After the first Zenodo release, add the concept DOI under `doi:` (see the
-# commented line below); that needs no new release.
+# `doi` is the Zenodo concept DOI, which always resolves to the newest version.
 cff-version: 1.2.0
 message: "If you use palmgeo in your work, please cite it using these metadata."
 type: software
@@ -17,7 +16,7 @@ authors:
     orcid: "https://orcid.org/0009-0002-3856-0305"
     affiliation: "Institute of Meteorology and Climatology, Leibniz University Hannover"
 version: "1.2.0"
-# doi: "10.5281/zenodo.XXXXXXX"
+doi: "10.5281/zenodo.23973676"
 license: GPL-3.0-or-later
 repository-code: "https://github.com/meteohauschopp/palmgeo"
 references:
